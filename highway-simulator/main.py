@@ -6,16 +6,19 @@ from uuid import uuid4
 from typing import Optional
 
 
+# Função auxiliar para limitar um valor entre um mínimo e um máximo
 def clamp(value, min_value, max_value):
     return max(min(value, max_value), min_value)
 
 
+# Classe que representa a posição de um veículo na rodovia
 @dataclass
 class VehiclePosition:
     lane: int = 0
     dist: int = 0
 
 
+# Classe que representa um veículo
 @dataclass
 class Vehicle:
     id: str = field(default_factory=lambda: str(uuid4()))
@@ -24,12 +27,14 @@ class Vehicle:
     acceleration: int = 0
     collision_time: Optional[int] = None
 
+    # Método que é chamado quando o veículo colide com outro
     def collide(self, cycle: int):
         self.speed = 0
         self.acceleration = 0
         self.collision_time = cycle
 
 
+# Classe que representa a rodovia
 @dataclass
 class Highway:
     name: str
@@ -39,11 +44,13 @@ class Highway:
     outgoing_vehicles: list[Vehicle] = field(default_factory=list)
     incoming_vehicles: list[Vehicle] = field(default_factory=list)
 
+    # Propriedade que retorna todos os veículos da rodovia
     @property
     def vehicles(self):
         return self.incoming_vehicles + self.outgoing_vehicles
 
 
+# Classe que representa os parâmetros de simulação
 @dataclass
 class SimulationParams:
     new_vehicle_probability: float
@@ -55,7 +62,7 @@ class SimulationParams:
     max_acceleration: float
     min_acceleration: float
 
-
+# Classe que representa a simulação
 class Simulation:
     params: SimulationParams
     highway: Highway
@@ -66,6 +73,7 @@ class Simulation:
         self.params = params
         self.cycle = 0
 
+    # Método que inicia a simulação
     def run(self):
         while True:
             self.__generate_vehicles()
@@ -77,15 +85,22 @@ class Simulation:
 
             self.cycle += 1
 
+    # Método que gera novos veículos na rodovia
     def __generate_vehicles(self):
+        # Percorre as duas listas de veículos (veículos entrando e saindo da rodovia)
         for vehicles in [
             self.highway.incoming_vehicles,
             self.highway.outgoing_vehicles,
         ]:
+            # Ordena os veículos por distância 
             for lane in range(self.highway.lanes):
+
+                # Se já existir um veículo na mesma faixa e a uma distância menor que 1,
+                # não gera um novo veículo
                 if any(v.pos.lane == lane and v.pos.dist <= 1 for v in vehicles):
                     continue
 
+                # Gera um novo veículo com uma probabilidade definida nos parâmetros
                 if random() < self.params.new_vehicle_probability:
                     new_vehicle = Vehicle(
                         speed=randint(self.params.min_speed, self.params.max_speed),
@@ -93,7 +108,9 @@ class Simulation:
                     )
                     vehicles.append(new_vehicle)
 
+    # Método que move os veículos na rodovia
     def __move_vehicles(self):
+        # Percorre as duas listas de veículos (veículos entrando e saindo da rodovia)
         for vehicles in [
             self.highway.incoming_vehicles,
             self.highway.outgoing_vehicles,
@@ -106,14 +123,16 @@ class Simulation:
                     )
                 )
             )
-
+            # Percorre os veículos da lista ordenada
             for i, vehicle in enumerate(sorted_vehicles):
 
+                # Função auxiliar para encontrar uma colisão
                 def find_collision(dist, lane):
                     for v in reversed(sorted_vehicles[:i]):
                         if dist >= v.pos.dist and lane == v.pos.lane:
                             return v
 
+                # Se o veículo já colidiu, não faz nada        
                 if vehicle.collision_time is not None:
                     continue
 
@@ -132,6 +151,7 @@ class Simulation:
                 vehicle.pos.dist = vehicle.pos.dist + vehicle.speed
                 desired_lane = vehicle.pos.lane
 
+                # Probabilidade de mudar de faixa
                 if random() < self.params.change_lane_probability:
                     desired_lane = clamp(
                         vehicle.pos.lane + choice([-1, 0, 1]),
@@ -141,6 +161,7 @@ class Simulation:
 
                 collision = find_collision(vehicle.pos.dist, desired_lane)
 
+                # Se houver colisão, verifica se o veículo pode mudar de faixa
                 if collision:
                     if (
                         random() < self.params.collision_probability
@@ -171,16 +192,23 @@ class Simulation:
 
                 vehicle.pos.lane = desired_lane
 
+                # Se o veículo saiu da rodovia, remove o veículo da lista
                 if vehicle.pos.dist >= self.highway.size:
                     vehicles.remove(vehicle)
                     continue
 
+    # Método que remove os veículos que colidiram
     def __remove_collisions(self):
+        # Percorre as duas listas de veículos (veículos entrando e saindo da rodovia)
         for vehicles in [
             self.highway.incoming_vehicles,
             self.highway.outgoing_vehicles,
         ]:
+            # Percorre os veículos da lista
             for vehicle in vehicles:
+                # Se o veículo colidiu e o tempo de colisão é maior
+                # que o tempo de duração da colisão,
+                # remove o veículo da lista
                 if (
                     vehicle.collision_time
                     and self.cycle - vehicle.collision_time
@@ -188,6 +216,7 @@ class Simulation:
                 ):
                     vehicles.remove(vehicle)
 
+    # Método que mostra o status da simulação
     def __print_status(self):
         def print_vehicles(vehicles, reverse=False):
             for lane in range(self.highway.lanes):
@@ -237,6 +266,7 @@ class Simulation:
         print(f"Moving:\t\t{moving_count:4}")
         print(f"Collisions:\t{collisions_count:4}")
 
+    # Método que gera o relatório de veículos
     def __report_vehicles(self):
         vehicles = []
         vehicles += [
