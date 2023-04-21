@@ -75,13 +75,14 @@ class Simulation:
 
     # Método que inicia a simulação
     def run(self):
+        
         while True:
             self.__generate_vehicles()
             self.__move_vehicles()
             self.__remove_collisions()
             self.__print_status()
             self.__report_vehicles()
-            sleep(2)
+            sleep(0.5)
 
             self.cycle += 1
 
@@ -260,7 +261,8 @@ class Simulation:
         )
 
         collisions_count = len(self.highway.vehicles) - moving_count
-
+        
+        print(f"Highway:\t{self.highway.name}")
         print(f"Cycle:\t\t{self.cycle:4}")
         print(f"Vehicles:\t{len(self.highway.vehicles):4}")
         print(f"Moving:\t\t{moving_count:4}")

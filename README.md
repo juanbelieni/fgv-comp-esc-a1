@@ -20,12 +20,31 @@ necessários ao sistema.
 
 ---
 
-## Requisitos
-
+## Requisitos e observações:
+Ter instalado em sua máquina:  
+- Python 3.10 ou superior  
+  
+OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
-Botar a linha de comando para executar o programa, com os parâmetros modificaveis e o que cada um faz.
-
+Exemplo de linha da comando para executar o programa:  
+```bash
+py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15
+```
+Onde:
+- -n: nome da rodovia;
+- -l: número de faixas;
+- -s: velocidada limite;
+- -pv: probabilidade de um novo veículo ser criado;
+- -pl: probabilidade de mudar de faixa;
+- -pc: probabilidade de colisão;
+- -cd: duração da colisão;
+- -vmax: velocidade máxima;
+- -vmin: velocidade mínima;
+- -amax: aceleração máxima;
+- -amin: aceleração mínima;
+  
+Todos os parâmetros são opcionais, exceto o nome da rodovia. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
 
 ## Modelagem
 
