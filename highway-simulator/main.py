@@ -72,7 +72,8 @@ class Simulation:
             self.__move_vehicles()
             self.__remove_collisions()
             self.__print_status()
-            sleep(0.2)
+            self.__report_vehicles()
+            sleep(2)
 
             self.cycle += 1
 
@@ -83,7 +84,6 @@ class Simulation:
         ]:
             for lane in range(self.highway.lanes):
                 if any(v.pos.lane == lane and v.pos.dist <= 1 for v in vehicles):
-                    # print(f"Vehicle is waiting to enter lane {lane}")
                     continue
 
                 if random() < self.params.new_vehicle_probability:
@@ -142,7 +142,10 @@ class Simulation:
                 collision = find_collision(vehicle.pos.dist, desired_lane)
 
                 if collision:
-                    if random() < self.params.collision_probability and vehicle.speed > 0:
+                    if (
+                        random() < self.params.collision_probability
+                        and vehicle.speed > 0
+                    ):
                         vehicle.pos.dist = collision.pos.dist
                         vehicle.collide(self.cycle)
                         collision.collide(self.cycle)
@@ -233,6 +236,22 @@ class Simulation:
         print(f"Vehicles:\t{len(self.highway.vehicles):4}")
         print(f"Moving:\t\t{moving_count:4}")
         print(f"Collisions:\t{collisions_count:4}")
+
+    def __report_vehicles(self):
+        vehicles = []
+        vehicles += [
+            (str(v.id), 0, v.pos.lane, v.pos.dist)
+            for v in self.highway.incoming_vehicles
+        ]
+        vehicles += [
+            (str(v.id), 1, v.pos.lane, v.pos.dist)
+            for v in self.highway.outgoing_vehicles
+        ]
+
+        with open(f"vehicles.txt", "w") as f:
+            text = f"{self.cycle} {len(vehicles)}"
+            text += "\n".join([" ".join([str(x) for x in v]) for v in vehicles])
+            f.write(text)
 
 
 if __name__ == "__main__":

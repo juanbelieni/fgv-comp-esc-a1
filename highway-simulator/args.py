@@ -14,7 +14,7 @@ parser.add_argument(
     "--lanes",
     type=int,
     help="Number of lanes in both directions",
-    default=2,
+    default=5,
 )
 parser.add_argument(
     "-s",
@@ -28,7 +28,7 @@ parser.add_argument(
     "--new_vehicle_prob",
     type=float,
     help="Probability of a new vehicle entering a lane",
-    default=0.01,
+    default=0.05,
 )
 parser.add_argument(
     "-pl",
@@ -49,7 +49,7 @@ parser.add_argument(
     "--collision_duration",
     type=int,
     help="Duration (in cycles) for removing vehicles involved in a collision",
-    default=5,
+    default=20,
 )
 parser.add_argument(
     "-vmax",
