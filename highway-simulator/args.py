@@ -7,7 +7,7 @@ parser.add_argument(
     "--name",
     type=str,
     help="Highway name",
-    required=True,
+    default="Highway Simulator",
 )
 parser.add_argument(
     "-l",
@@ -21,24 +21,28 @@ parser.add_argument(
     "--speed_limit",
     type=int,
     help="Highway speed limit (spaces/cycle)",
-    default=10,
+    default=5,
 )
 parser.add_argument(
     "-pv",
     "--new_vehicle_prob",
     type=float,
     help="Probability of a new vehicle entering a lane",
-    default=0.1,
+    default=0.01,
 )
 parser.add_argument(
     "-pl",
     "--change_lane_prob",
     type=float,
     help="Probability of a vehicle changing lanes",
-    default=0.2,
+    default=0.01,
 )
 parser.add_argument(
-    "-pc", "--collision_prob", type=float, help="Probability of collision", default=0.05
+    "-pc",
+    "--collision_prob",
+    type=float,
+    help="Probability of collision",
+    default=0.05,
 )
 parser.add_argument(
     "-cd",
@@ -52,28 +56,28 @@ parser.add_argument(
     "--max_speed",
     type=int,
     help="Maximum speed of a vehicle (spaces/cycle)",
-    default=10,
+    default=3,
 )
 parser.add_argument(
     "-vmin",
     "--min_speed",
     type=int,
     help="Minimum speed of a vehicle (spaces/cycle)",
-    default=1,
+    default=0,
 )
 parser.add_argument(
     "-amax",
     "--max_acceleration",
     type=int,
     help="Maximum acceleration of a vehicle (spaces/cycles^2)",
-    default=2,
+    default=1,
 )
 parser.add_argument(
     "-amin",
     "--min_acceleration",
     type=int,
     help="Minimum acceleration of a vehicle (spaces/cycle^2)",
-    default=-2,
+    default=-1,
 )
 
 
