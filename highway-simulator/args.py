@@ -8,6 +8,7 @@ parser.add_argument(
     type=str,
     help="Highway name",
     default="Highway Simulator",
+    required=True,
 )
 parser.add_argument(
     "-l",

@@ -20,16 +20,49 @@ necessários ao sistema.
 
 ---
 
-## Manual de instruções:
+## Requisitos e observações:
+Ter instalado em sua máquina:  
+- Python 3.10 ou superior  
+  
+OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
-## Simulação da rodovia
+## Manual de instruções
+Exemplo de linha da comando para executar o programa:  
+```bash
+py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15
+```
+Onde:
+- -n: nome da rodovia;
+- -l: número de faixas;
+- -s: velocidada limite;
+- -pv: probabilidade de um novo veículo ser criado;
+- -pl: probabilidade de mudar de faixa;
+- -pc: probabilidade de colisão;
+- -cd: duração da colisão;
+- -vmax: velocidade máxima;
+- -vmin: velocidade mínima;
+- -amax: aceleração máxima;
+- -amin: aceleração mínima;
+  
+Todos os parâmetros são opcionais, exceto o nome da rodovia. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
 
-### Modelagem
+## Modelagem
+
+### Simulação da rodovia
 
 A programação dessa simulação se baseia numa modelagem discreta dos espaço e do tempo. I.e., a cada ciclo, o programa calcula a próxima posição que o veículo deve estar baseado em sua posição e velocidade, com base nas informações de aceleração e movimentação de outros carros. Desta maneira, ao final do ciclo, a posição dos carros é armazenada em disco para uso futuro do ETL.  
   
-Voltando a simulação em si, temos as seguintes informações:  
-class VehiclePosition:
+Para a fácil visualização de cada rodovia foi planejada como sendo duas matrizes com $n$ linhas cada, onde cada linha representa uma faixa e cada coluna representa uma distância. Paralelo a isso, na modelagem cada autmomóvel possui uma aceleração e uma velocidade sendo estes um número nos conjuntos $[0, ..., a] \subset \mathbb{N}$ e $[\dfrac{v}{2}, ..., v] \subset \mathbb{N}$ respectivamente, possui também a probabilidade de entrada de um novo veículo em cada pista, de um veículo trocar de pista e de colisão.Com isso, cada célula da matriz pode conter $0$ ou $n$ veículos, isto na ocorrência de colisões, que após alguns ciclos serão removidas da rodovia.  
+  
+
+### ETL
+**Parágrafo para falar do ETL**  
+  
+  
+### Informações de cada arquivo 
+Voltando a simulação em si, em sumo o programa funciona da seguinte maneira:  
+  
+class VehiclePosition:  
 """Classe que representa a posição de um veículo na rodovia"""  
 
 - lane (int): faixa em que o veículo está;
