@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from random import randint, random, choice
 from args import args
@@ -38,9 +39,8 @@ class Vehicle:
 @dataclass
 class Highway:
     name: str
-    speed_limit: int
     lanes: int
-    size: int = 200
+    size: int
     outgoing_vehicles: list[Vehicle] = field(default_factory=list)
     incoming_vehicles: list[Vehicle] = field(default_factory=list)
 
@@ -57,33 +57,36 @@ class SimulationParams:
     change_lane_probability: float
     collision_probability: float
     collision_duration: int
-    max_speed: float
-    min_speed: float
-    max_acceleration: float
-    min_acceleration: float
+    max_speed: int
+    min_speed: int
+    max_acceleration: int
+    min_acceleration: int
+    cycle_duration: float
+
 
 # Classe que representa a simulação
 class Simulation:
     params: SimulationParams
     highway: Highway
     cycle: int
+    output_dir: Optional[str] = None
     num_files: int = 5
 
-    def __init__(self, highway: Highway, params: SimulationParams):
+    def __init__(self, highway: Highway, params: SimulationParams, output_dir: str):
         self.highway = highway
         self.params = params
         self.cycle = 0
+        self.output_dir = output_dir
 
     # Método que inicia a simulação
     def run(self):
-        
         while True:
             self.__generate_vehicles()
             self.__move_vehicles()
             self.__remove_collisions()
             self.__print_status()
             self.__report_vehicles()
-            sleep(0.5)
+            sleep(self.params.cycle_duration)
 
             self.cycle += 1
 
@@ -94,7 +97,7 @@ class Simulation:
             self.highway.incoming_vehicles,
             self.highway.outgoing_vehicles,
         ]:
-            # Ordena os veículos por distância 
+            # Ordena os veículos por distância
             for lane in range(self.highway.lanes):
 
                 # Se já existir um veículo na mesma faixa e a uma distância menor que 1,
@@ -134,7 +137,7 @@ class Simulation:
                         if dist >= v.pos.dist and lane == v.pos.lane:
                             return v
 
-                # Se o veículo já colidiu, não faz nada        
+                # Se o veículo já colidiu, não faz nada
                 if vehicle.collision_time is not None:
                     continue
 
@@ -262,40 +265,44 @@ class Simulation:
         )
 
         collisions_count = len(self.highway.vehicles) - moving_count
-        
+
         print(f"Highway:\t{self.highway.name}")
-        print(f"Cycle:\t\t{self.cycle:4}")
-        print(f"Vehicles:\t{len(self.highway.vehicles):4}")
-        print(f"Moving:\t\t{moving_count:4}")
-        print(f"Collisions:\t{collisions_count:4}")
+        print(f"Cycle:\t\t{self.cycle:04d}")
+        print(f"Vehicles:\t{len(self.highway.vehicles):04d}")
+        print(f"Moving:\t\t{moving_count:04d}")
+        print(f"Collisions:\t{collisions_count:04d}")
 
     # Método que gera o relatório de veículos
     def __report_vehicles(self):
-        vehicles = []
-        vehicles += [
-            (str(v.id), 0, v.pos.lane, v.pos.dist)
-            for v in self.highway.incoming_vehicles
-        ]
-        vehicles += [
-            (str(v.id), 1, v.pos.lane, v.pos.dist)
-            for v in self.highway.outgoing_vehicles
+        if not self.output_dir:
+            return
+
+        vehicles = [
+            (str(v.id), i, v.pos.lane, v.pos.dist)
+            for i, vs in enumerate([self.highway.incoming_vehicles, self.highway.outgoing_vehicles])
+            for v in vs
         ]
 
-        with open(f"data/{self.cycle % self.num_files}.csv", "w") as f:
+        path_csv = os.path.join(self.output_dir, f"{self.cycle % self.num_files}.csv")
+        path_tmp = os.path.join(self.output_dir, f"{self.cycle % self.num_files}.tmp")
+
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        with open(path_csv, "w") as f:
             text = f"{self.cycle}\n"
             text += "\n".join([",".join([str(x) for x in v]) for v in vehicles])
             f.write(text)
-        
+
         # Cria o arquivo que sinaliza o fim da escrita dos dados
-        with open(f"data/{self.cycle % self.num_files}.tmp", "w") as f:
+        with open(path_tmp, "w") as f:
             pass
 
 
 if __name__ == "__main__":
     highway = Highway(
         name=args.name,
-        speed_limit=args.speed_limit,
         lanes=args.lanes,
+        size=args.size,
     )
 
     params = SimulationParams(
@@ -307,7 +314,8 @@ if __name__ == "__main__":
         min_speed=args.min_speed,
         max_acceleration=args.max_acceleration,
         min_acceleration=args.min_acceleration,
+        cycle_duration=args.duration,
     )
 
-    simulation = Simulation(highway, params)
+    simulation = Simulation(highway, params, output_dir=args.output_dir)
     simulation.run()
