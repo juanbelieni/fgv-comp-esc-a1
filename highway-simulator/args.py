@@ -19,6 +19,22 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "-s",
+    "--size",
+    type=int,
+    help="Size of the highway",
+    default=200,
+)
+
+parser.add_argument(
+    "-sl",
+    "--speed-limit",
+    type=int,
+    help="Speed limit of the highway",
+    default=5,
+)
+
+parser.add_argument(
     "-pv",
     "--new-vehicle-prob",
     type=float,
@@ -80,14 +96,6 @@ parser.add_argument(
     type=int,
     help="Minimum acceleration of a vehicle (spaces/cycle^2)",
     default=-1,
-)
-
-parser.add_argument(
-    "-s",
-    "--size",
-    type=int,
-    help="Size of the highway",
-    default=200,
 )
 
 parser.add_argument(

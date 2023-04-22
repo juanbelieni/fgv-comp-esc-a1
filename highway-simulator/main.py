@@ -3,13 +3,18 @@ from dataclasses import dataclass, field
 from random import randint, random, choice
 from args import args
 from time import sleep
-from uuid import uuid4
 from typing import Optional
+from time import time
 
 
 # Função auxiliar para limitar um valor entre um mínimo e um máximo
 def clamp(value, min_value, max_value):
     return max(min(value, max_value), min_value)
+
+
+def new_id():
+    chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return "".join(choice(chars) for _ in range(7))
 
 
 # Classe que representa a posição de um veículo na rodovia
@@ -22,7 +27,7 @@ class VehiclePosition:
 # Classe que representa um veículo
 @dataclass
 class Vehicle:
-    id: str = field(default_factory=lambda: str(uuid4()))
+    id: str = field(default_factory=lambda: str(new_id()))
     pos: VehiclePosition = field(default_factory=VehiclePosition)
     speed: int = 0
     acceleration: int = 0
@@ -41,6 +46,7 @@ class Highway:
     name: str
     lanes: int
     size: int
+    speed_limit: int
     outgoing_vehicles: list[Vehicle] = field(default_factory=list)
     incoming_vehicles: list[Vehicle] = field(default_factory=list)
 
@@ -169,8 +175,10 @@ class Simulation:
                 # Se houver colisão, verifica se o veículo pode mudar de faixa
                 if collision:
                     if (
-                        random() < self.params.collision_probability
-                        and vehicle.speed > 0
+                        random()
+                        < self.params.collision_probability
+                        * vehicle.speed
+                        / self.params.max_speed
                     ):
                         vehicle.pos.dist = collision.pos.dist
                         vehicle.collide(self.cycle)
@@ -279,7 +287,12 @@ class Simulation:
 
         vehicles = [
             (str(v.id), i, v.pos.lane, v.pos.dist)
-            for i, vs in enumerate([self.highway.incoming_vehicles, self.highway.outgoing_vehicles])
+            for i, vs in enumerate(
+                [
+                    self.highway.incoming_vehicles,
+                    self.highway.outgoing_vehicles,
+                ]
+            )
             for v in vs
         ]
 
@@ -289,7 +302,7 @@ class Simulation:
         os.makedirs(self.output_dir, exist_ok=True)
 
         with open(path_csv, "w") as f:
-            text = f"{self.cycle}\n"
+            text = f"{self.cycle} {time()} {self.highway.lanes} {self.highway.size} {self.highway.speed_limit}\n"
             text += "\n".join([",".join([str(x) for x in v]) for v in vehicles])
             f.write(text)
 
@@ -303,6 +316,7 @@ if __name__ == "__main__":
         name=args.name,
         lanes=args.lanes,
         size=args.size,
+        speed_limit=args.speed_limit,
     )
 
     params = SimulationParams(
