@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+*.out
 
 # Distribution / packaging
 .Python
@@ -168,5 +169,8 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+
+# VSCode project settings
+.vscode/
 
 # End of https://www.toptal.com/developers/gitignore/api/python
