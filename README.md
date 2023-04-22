@@ -54,10 +54,11 @@ A programação dessa simulação se baseia numa modelagem discreta dos espaço 
   
 Para a fácil visualização desses dados, cada rodovia foi planejada como sendo duas matrizes com $n$ linhas cada, onde cada linha representa uma faixa e cada coluna representa uma distância. Paralelo a isso, cada automóvel foi modelado possuindo uma aceleração e uma velocidade, sendo estes um número nos conjuntos $[0, ..., a] \subset \mathbb{N}$ e $[\dfrac{v}{2}, ..., v] \subset \mathbb{N}$, respectivamente. A simulação implementada possui também a probabilidade de entrada de um novo veículo em cada pista, de um veículo trocar de pista e de ocorrer uma colisão. Com isso, cada célula da matriz pode conter de $0$ a $n$ veículos, isto na ocorrência de colisões, que após alguns ciclos serão removidas da rodovia.  
   
+A cada ciclo, as informações dos veículos são atualizadas do veículo mais distante até o mais perto do início da pista. Desta forma, a cada ciclo, é dado ao veículo sua nova posição. Além disso, a partir da probabilidade de troca de faixa, uma nova faixa "desejável" é definida, e é verificado se algum tipo de colisão vai ocorrer. Se sim, há uma possibilidade desse veículo bater. Porém, caso isso não aconteça, o veículo tentará trocar de faixa ou ficar na mesma mas diminuindo sua velocidade.
 
 ### ETL
-**Parágrafo para falar do ETL**  
-  
+
+**Parágrafo para falar do ETL**    
   
 ### Informações de cada arquivo 
 Voltando a simulação em si, em suma o programa funciona da seguinte maneira:  

@@ -55,7 +55,7 @@ parser.add_argument(
     "--collision-prob",
     type=float,
     help="Probability of collision",
-    default=0.05,
+    default=0.01,
 )
 
 parser.add_argument(

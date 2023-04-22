@@ -147,8 +147,19 @@ class Simulation:
                 if vehicle.collision_time is not None:
                     continue
 
+                avg_speed = sum(
+                    v.speed / (1 + (v.pos.dist - vehicle.pos.dist) ** 2)
+                    for v in sorted_vehicles[: i + 1]
+                ) / sum(
+                    1 / (1 + (v.pos.dist - vehicle.pos.dist) ** 2)
+                    for v in sorted_vehicles[: i + 1]
+                )
+
+                is_fast = vehicle.speed > avg_speed
+
                 vehicle.acceleration = clamp(
-                    vehicle.acceleration + choice([-1, 0, 0, 0, 1, 1]),
+                    vehicle.acceleration
+                    + (choice([-1, -1, 0, 0, 1]) if is_fast else choice([-1, 0, 0, 1])),
                     self.params.min_acceleration,
                     self.params.max_acceleration,
                 )
@@ -177,8 +188,7 @@ class Simulation:
                     if (
                         random()
                         < self.params.collision_probability
-                        * vehicle.speed
-                        / self.params.max_speed
+                        * (vehicle.speed / self.params.max_speed) ** 2
                     ):
                         vehicle.pos.dist = collision.pos.dist
                         vehicle.collide(self.cycle)
