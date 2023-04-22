@@ -67,6 +67,7 @@ class Simulation:
     params: SimulationParams
     highway: Highway
     cycle: int
+    num_files: int = 5
 
     def __init__(self, highway: Highway, params: SimulationParams):
         self.highway = highway
@@ -280,10 +281,14 @@ class Simulation:
             for v in self.highway.outgoing_vehicles
         ]
 
-        with open(f"vehicles.txt", "w") as f:
-            text = f"{self.cycle} {len(vehicles)}"
-            text += "\n".join([" ".join([str(x) for x in v]) for v in vehicles])
+        with open(f"data/{self.cycle % self.num_files}.csv", "w") as f:
+            text = f"{self.cycle}\n"
+            text += "\n".join([",".join([str(x) for x in v]) for v in vehicles])
             f.write(text)
+        
+        # Cria o arquivo que sinaliza o fim da escrita dos dados
+        with open(f"data/{self.cycle % self.num_files}.tmp", "w") as f:
+            pass
 
 
 if __name__ == "__main__":
