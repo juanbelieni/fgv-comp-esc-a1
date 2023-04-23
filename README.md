@@ -27,6 +27,8 @@ Ter instalado em sua máquina:
 OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
+Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível, definir pelo argumento ```-n``` o nome da rodovia e, opcionalmente, escolher valores para outros argumentos.
+
 Exemplo de linha da comando para executar o programa:  
 ```bash
 py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15
