@@ -71,7 +71,7 @@ parser.add_argument(
     "--max-speed",
     type=int,
     help="Maximum speed of a vehicle (spaces/cycle)",
-    default=3,
+    default=5,
 )
 
 parser.add_argument(
@@ -79,7 +79,7 @@ parser.add_argument(
     "--min-speed",
     type=int,
     help="Minimum speed of a vehicle (spaces/cycle)",
-    default=0,
+    default=1,
 )
 
 parser.add_argument(
@@ -112,6 +112,13 @@ parser.add_argument(
     type=str,
     help="Output directory",
     required=False,
+)
+
+parser.add_argument(
+    '-p',
+    '--print',
+    action='store_true',
+    help='Print the highway to the console',
 )
 
 args = parser.parse_args()

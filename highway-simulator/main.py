@@ -77,12 +77,14 @@ class Simulation:
     cycle: int
     output_dir: Optional[str] = None
     num_files: int = 5
+    silent: bool = True
 
-    def __init__(self, highway: Highway, params: SimulationParams, output_dir: str):
+    def __init__(self, highway: Highway, params: SimulationParams, output_dir: str, silent: bool = True):
         self.highway = highway
         self.params = params
         self.cycle = 0
         self.output_dir = output_dir
+        self.silent = silent
 
     # Método que inicia a simulação
     def run(self):
@@ -210,7 +212,7 @@ class Simulation:
                             desired_lane = choice(possible_lanes)
                         else:
                             vehicle.pos.dist = collision.pos.dist - 1
-                            vehicle.speed = 0
+                            vehicle.speed = collision.speed
                             vehicle.acceleration = 0
 
                 vehicle.pos.lane = desired_lane
@@ -241,6 +243,8 @@ class Simulation:
 
     # Método que mostra o status da simulação
     def __print_status(self):
+        if self.silent: return
+
         def print_vehicles(vehicles, reverse=False):
             for lane in range(self.highway.lanes):
                 r = range(0, self.highway.size)
@@ -341,5 +345,10 @@ if __name__ == "__main__":
         cycle_duration=args.duration,
     )
 
-    simulation = Simulation(highway, params, output_dir=args.output_dir)
+    simulation = Simulation(
+        highway,
+        params,
+        output_dir=args.output_dir,
+        silent=not args.print,
+    )
     simulation.run()
