@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/css/tabulator.min.css" integrity="sha512-j3rR7zfij45jvjB25No5oizV4tdpt6buwLrvfhXXboG+F88VMnvA4TsJpKgChHa156f+6gYk951Cv5pInltllQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js" integrity="sha512-BGo9xGWI32ZfTMp/ueR3fZKO5nYkPbt3uwMWr+w8w3e72H8A0sTQGO+iqRADwIT0eJkFP1HDgSC82gA4sTuQ6w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <title>Highway Analysis</title>
+</head>
+<body>
+    <h2>Highway Analysis</h2>
+    <div id="main-table"></div>
+</body>
+</html>
+
+<script  type="module">
+import {Tabulator} from 'https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator_esm.min.js';
+import axios from 'https://cdn.skypack.dev/axios';
+
+async function getDataset() {
+    const response = await axios.get('http://localhost:3000/getData');
+    return response.data;
+}
+// Vou precisar do Juan.
+
+async function createTable() {
+    return new Tabulator("#main-table", {
+        height:205, // set height of table (in CSS or here), this enables the Virtual DOM and improves render speed dramatically (can be any valid css height value)
+        data: getDataset().records, //assign data to table
+        layout:"fitColumns", //fit columns to width of table (optional)
+        columns:[ //Define Table Columns
+            {title:"Plate", field:"plate", width:150},
+            {title:"GPS", field:"gps", align:"left"},
+            {title:"Speed", field:"speed", align:"left"},
+            {title:"Acceleration", field:"acceleration", align:"left"},
+            {title:"Risk", field:"risk", align:"left"},
+            {title:"Name", field:"name", align:"left"},
+            {title:"Model", field:"model", align:"left"},
+            {title:"Year", field:"year", align:"left"},
+        ],
+    });    
+}
+
+createTable();
+
+
+</script>
+
+{{!-- <script type="module" src="./static/js/index.js"></script> --}}

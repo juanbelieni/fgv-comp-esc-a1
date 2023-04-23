@@ -1,24 +1,24 @@
-#include "ETL/Temporary.hpp"
+#include <iostream>
+#include <string>
+#include <vector>
+#include <cmath>
+
+#include "ETL/ETL.hpp"
 
 using std::cout;
 using std::endl;
-using std::string;
-using std::vector;
 
-/*
- *  TODO:
-    - pedir e implementar a verificação de um inteiro no header do arquivo que indica
- *  o número de novas placas por ciclo, assim a hash table pode ser expandida para um
- *  tamanho suficiente antes que o ETL comece a rodar e evitamos muita dor de cabeça.
- * 
- *  - Chegar em um consenso sobre o tamanho da placa.
- * 
- *  Também não testei nada do que foi escrito, então tenha paciência, mas reclame à vontade.
- */
-
-int main() {
-    ETL etl(4);
-    // Espera um enter
-    std::cin.get();
-    etl.run();
+int main(int argc, char** argv) {
+    // Argumentos: número de threads (mínimo 3) e tamanho da fila do serviço externo
+    ETL etl(10, 10);
+    std::vector<std::string> folders;
+    // O comportamento padrão é verificar apenas a pasta data/
+    if (argc == 1)
+        folders.push_back("data/");
+    
+    for (int i = 1; i < argc; i++) {
+        folders.push_back(argv[i]);
+        folders.back() += "/";
+    }
+    etl.run(folders);
 }
