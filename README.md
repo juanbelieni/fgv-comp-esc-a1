@@ -24,6 +24,28 @@ necessários ao sistema.
 Ter instalado em sua máquina:  
 - Python 3.10 ou superior
 - Biblioteca ncurses para C++
+
+Recomendamos que busque por como proceder com a instalação do ncurses em seu sistema operacional. Acreditamos que as seguintes formas devem auxiliar:
+
+Ubuntu
+```bash
+sudo apt-get install libncurses5-dev libncursesw5-dev
+```
+
+Arch Linux
+```bash
+sudo pacman -S ncurses
+```
+
+OSX
+```bash
+brew install ncurses
+```
+
+Windows
+```bash
+pacman -S ncurses
+```
   
 OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
