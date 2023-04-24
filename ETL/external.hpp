@@ -17,14 +17,13 @@ class SlowService {
     std::condition_variable cv;
     std::mutex processing_mutex;
     std::mutex queue_mutex;
-    int queue_size;
+    int max_queue_size;
     int nap_time;
 
     std::vector<std::string> first_names;
     std::vector<std::string> last_names;
     std::vector<std::string> models;
 
-    Plate last_plate;
     std::string name;
     std::string model;
     int year = -1;
@@ -38,15 +37,18 @@ class SlowService {
 
  public:
     /// Tempo de soneca em microssegundos.
-    SlowService(int queue_size, int nap_time = 10) : queue_size(queue_size), nap_time(nap_time) {
+    SlowService(int max_queue_size, int nap_time = 10) :
+                max_queue_size(max_queue_size), nap_time(nap_time) {
         std::ifstream file("ETL/random/first_names.txt");
         char line[64];
         while (file.getline(line, 64))
             first_names.push_back(line);
+        file.close();
         
         file.open("ETL/random/last_names.txt");
         while (file.getline(line, 64))
             last_names.push_back(line);
+        file.close();
         
         file.open("ETL/random/models.txt");
         while (file.getline(line, 64))
@@ -58,7 +60,7 @@ class SlowService {
     /// @return Um booleano indicando se a placa foi adicionada à fila.
     bool query_vehicle(const Plate& plate) {
         std::unique_lock<std::mutex> queue_lock(queue_mutex);
-        if (queue.size() == queue_size)
+        if (queue.size() == max_queue_size)
             return false;
         queue.push(plate);
         // Libera consultas à fila
@@ -66,7 +68,8 @@ class SlowService {
 
         std::unique_lock<std::mutex> processing_lock(processing_mutex);
         // Espera até que a próxima placa a ser processada seja a atual
-        cv.wait(processing_lock, [this, plate] { return queue.front() == plate; });
+        if (queue.front() != plate)
+            cv.wait(processing_lock, [this, plate] { return queue.front() == plate; });
 
         // Dorme para ser intencionalmente lento
         std::this_thread::sleep_for(std::chrono::microseconds(nap_time));

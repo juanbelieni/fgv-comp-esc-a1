@@ -25,6 +25,7 @@ inline int str_to_int(const char* str, int& index, char end) {
         result *= 10;
         result += str[index] - '0';
     }
+    index++;
     return negative ? -result : result;
 }
 
@@ -48,8 +49,10 @@ inline double str_to_double(const char* str, int& index, char end) {
         integer += str[index] - '0';
     }
     double result = integer;
-    if (str[index] == end)
+    if (str[index] == end) {
+        index++;
         return result;
+    }
 
     int divisor = 1;
     for (++index; str[index] != end; index++) {
@@ -58,6 +61,7 @@ inline double str_to_double(const char* str, int& index, char end) {
             continue;
         result += static_cast<double>(str[index] - '0') / divisor;
     }
+    index++;
     return negative ? -result : result;
 }
 
@@ -83,6 +87,10 @@ struct Plate {
                 return false;
         }
         return true;
+    }
+
+    bool operator!=(const Plate& other) const {
+        return !(*this == other);
     }
 
     bool operator==(const char* const other) const {
