@@ -83,7 +83,7 @@ Ou, use esta lista como guia:
 - -amax: aceleração máxima;
 - -amin: aceleração mínima;
 - -d: duração em milissegundos de cada iteração;
-- -o: arquivo de saída;
+- -o: diretório do arquivo de saída;
 - -p: mostra a simulação no console.
   
 Todos os parâmetros são opcionais. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
