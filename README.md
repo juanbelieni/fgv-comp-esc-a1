@@ -25,7 +25,7 @@ Ter instalado em sua máquina:
 - Python 3.10 ou superior
 - Biblioteca ncurses para C++
 
-Recomendamos que busque por como proceder com a instalação do ncurses em seu sistema operacional. Acreditamos que as seguintes formas devem auxiliar:
+Recomendamos que busque por como proceder com a instalação do ncurses em seu sistema operacional. Acreditamos que os seguintes comandos devem auxiliar:
 
 Ubuntu
 ```bash
@@ -42,27 +42,27 @@ OSX
 brew install ncurses
 ```
   
-OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
+OBS: Dependendo do tamanho de fonte da sua IDE ou do seu terminal, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
 Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível. Junto a isto, em outro terminal execute o arquivo cpp para a etapa de ETL e de visualização do dashboard.
 
 Exemplo de linha da comando para executar o programa no Windows:  
 ```bash
-py -3.10 highway-simulator/main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
+py -3.10 highway-simulator/main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p -o data
 ```
 
 Exemplo de linha da comando para executar o programa no Linux:  
 ```bash
-python3 highway-simulator/main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p
+python3 highway-simulator/main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p -o data
 ```
 
-Para compilar o programa cpp:
+Para compilar o programa C++:
 ```bash
 g++ main.cpp -std=c++20 -lncurses -o main
 ```
 
-Para ver no console os parâmetros disponíveis do arquivo python, execute o parâmetro ```-h``` ou ```--help```.
+Para ver no console os parâmetros disponíveis do script python, execute o parâmetro ```-h``` ou ```--help```.
 
 Ou, use esta lista como guia:
 - -n: nome da rodovia;
