@@ -22,7 +22,8 @@ necessários ao sistema.
 
 ## Requisitos e observações:
 Ter instalado em sua máquina:  
-- Python 3.10 ou superior  
+- Python 3.10 ou superior
+- Biblioteca ncurses para C++
   
 OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
