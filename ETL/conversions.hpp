@@ -74,7 +74,7 @@ struct Plate {
         plate[7] = '\0';
     }
 
-    Plate(char* symbols) {
+    Plate(const char* const symbols) {
         for (int i = 0; i < 7; i++) {
             plate[i] = symbols[i];
         }

@@ -36,8 +36,8 @@ class SlowService {
     }
 
  public:
-    /// Tempo de soneca em microssegundos.
-    SlowService(int max_queue_size, int nap_time = 10) :
+    /// Tempo de soneca em nanossegundos.
+    SlowService(int max_queue_size, int nap_time = 1000) :
                 max_queue_size(max_queue_size), nap_time(nap_time) {
         std::ifstream file("ETL/random/first_names.txt");
         char line[64];
@@ -72,7 +72,7 @@ class SlowService {
             cv.wait(processing_lock, [this, plate] { return queue.front() == plate; });
 
         // Dorme para ser intencionalmente lento
-        std::this_thread::sleep_for(std::chrono::microseconds(nap_time));
+        std::this_thread::sleep_for(std::chrono::nanoseconds(nap_time));
 
         /*
         Para que a função seja intencionalmente lenta, uma opção é ler o arquivo com os

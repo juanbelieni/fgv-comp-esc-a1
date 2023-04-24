@@ -82,8 +82,11 @@ class ETL {
         // após atingir uma constante para evitar que muitos arquivos sejam criados
         std::vector<int> file_indices(folders.size(), 0);
         cycle_times.resize(folders.size());
-        for (auto& times : cycle_times)
+        double now_ = now();
+        for (auto& times : cycle_times) {
             times.resize(default_map_size / 4);  // valor arbitrário
+            times.push_back(now_);
+        }
         bool first_time = true;
 
         // Procura arquivos para processar indefinidamente
@@ -94,6 +97,7 @@ class ETL {
             int folder = 0;
             std::string path;
             std::string temp_path;
+            std::cout << "Procurando um arquivo para iniciar..." << std::endl;
 
             while (true) {
                 // Verifica em cada uma das pastas analisadas se o arquivo existe
@@ -111,13 +115,17 @@ class ETL {
             file.open(path);
             file.getline(data, buffer_size);
             int index = 0;
-            // Obtém o número do ciclo de simulação atual
-            cycle = str_to_int(data, index, ' ');
+            // Obtém o número do ciclo de simulação atual e soma um para poder acessar o elemento
+            // anterior mesmo quando o índice for 0
+            cycle = str_to_int(data, index, ' ') + 1;
             // Salva o instante de tempo em que o ciclo foi computado
             cycle_times[highway][cycle] = str_to_double(data, index, ' ');
             int n_lanes = str_to_int(data, index, ' ');
             int extension = str_to_int(data, index, ' ');
-            int max_speed = str_to_int(data, index, '\n');
+            // Obtém a velocidade em unidades de deslocamento e converte para float
+            float max_speed = str_to_int(data, index, '\n');
+            // Coloca a velocidade máxima na mesma escala da velocidade computada para os veículos
+            // max_speed /= cycle_times[highway][cycle] - cycle_times[highway][cycle - 1];
             // Lê o restante dos dados do arquivo, deixando o primeiro e o último caracteres
             // do buffer como '\n' para facilitar verificações mais à frente
             file.read(data + 1, buffer_size - 2);
@@ -181,8 +189,7 @@ class ETL {
             std::unique_lock<std::mutex> load_lock(load_mutex);
 
             // Se o usuário tentou encerrar, encerra o programa
-            if (should_exit)
-                break;
+            int stop = should_exit;
 
             info.num_vehicles[ALL] = vehicle_counts[ALL];
             info.num_vehicles[COLLISION_RISK] = vehicle_counts[COLLISION_RISK];
@@ -211,8 +218,7 @@ class ETL {
             cv.notify_all();
 
             should_draw = true;
-            current_absolute_value = 1;
-            current_vehicle = std::make_pair(0, 0);
+            update_filter(current_filter, true);
             load_lock.unlock();
             load_cv.notify_one();
 
@@ -221,6 +227,9 @@ class ETL {
                 thread.join();
             threads.clear();
 
+            if (stop)
+                break;
+
             // Força uma atualização do dashboard com as respostas do serviço externo mesmo
             // sem input do usuário
             load_lock.lock();
@@ -228,7 +237,7 @@ class ETL {
             load_lock.unlock();
             load_cv.notify_one();
             
-            // Descomente para parar de dormir
+            // Descomente para dormir por 2 segundos entre cada ciclo
             // std::this_thread::sleep_for(std::chrono::seconds(2));
             file_indices[highway] = (file_indices[highway] + 1) % n_files;
         }
@@ -337,11 +346,6 @@ class ETL {
         // Garante que o vetor que recebe os dados do transform está preparado para recebê-los
         new_processed[thread_num].reserve(modified[thread_num].size());
         new_processed[thread_num].resize(0);
-
-        // !!!
-        // cv.wait(lock, [this] { return is_all_done(); });
-        // lock.unlock();
-        // transform(thread_num, max_speed);
     }
 
     void transform(int thread_num, int max_speed) {
@@ -360,39 +364,35 @@ class ETL {
                 int distance = positions[last].distance - positions[last - 1].distance;
 
                 // Calcula velocidade como deslocamento dividido por tempo decorrido
-                car->speed = static_cast<float>(distance) /
-                    (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                car->speed = static_cast<float>(distance);
+                    // / (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
                 if (car->speed == -0.0f)
                     car->speed = 0.0f;
                 
                 if (positions.size() > 2) {
                     float prev_acceleration = car->acceleration;
                     // Calcula aceleração como velocidade dividida por tempo decorrido
-                    car->acceleration = (car->speed - prev_speed) /
-                        (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                    car->acceleration = (car->speed - prev_speed);
+                        // / (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
                     if (car->acceleration == -0.0f)
                         car->acceleration = 0.0f;
                     
                     if (positions.size() > 3) {
-                        // float time_to_collision = -(current->speed + prev_speed) /
-                        //                             (current->acceleration + prev_acceleration);
-                        // current->risk = time_to_collision / (prev_speed + prev_acceleration);
-
                         // Cálculo do risco de colisão usando a função sigmoide
-                        float x = (car->speed + car->speed * std::abs(car->acceleration)) / max_speed - 5;
+                        float x = 16 * (car->speed + car->speed * std::abs(car->acceleration)) / max_speed - 6;
                         car->risk = 1.0f / (1.0f + std::exp(-x));
                     } else {
                         car->risk = -1.0f;
                     }
                 } else {
-                    car->acceleration = -1.0f;
+                    car->acceleration = 0.0f;
                     car->risk = -1.0f;    
                 }
             // Se não há dados suficientes, define como valores negativos para que possam ser
             // descartados facilmente na análise posterior
             } else {
                 car->speed = -1.0f;
-                car->acceleration = -1.0f;
+                car->acceleration = 0.0f;
                 car->risk = -1.0f;
             }
 
@@ -452,6 +452,7 @@ class ETL {
             draw();
         }
         endwin();
+        std::cout << "Encerrando todas as threads..." << std::endl;
     }
 
     /*
@@ -524,13 +525,17 @@ class ETL {
 
     /// Retorna true se o filtro foi atualizado. Define o veículo selecionado como
     /// o primeiro que se adequa ao filtro especificado.
-    bool update_filter(int new_value) {
-        if (new_value != current_filter) {
+    bool update_filter(int new_value, bool force = false) {
+        if (new_value != current_filter || force) {
             current_filter = new_value;
             current_vehicle = std::make_pair(0, 0);
-            if (!processed[0][0].second.flags[current_filter])
-                find_next();
-            current_absolute_value = 1;
+            if (info.num_vehicles[current_filter] > 1) {
+                if (!processed[0][0].second.flags[current_filter])
+                    find_next();
+                current_absolute_value = 1;
+            } else {
+                current_absolute_value = 0;
+            }
             return true;
         }
         return false;
@@ -545,8 +550,6 @@ class ETL {
                     break;
                 case KEY_RIGHT:
                     changed = find_next();
-                    if (!changed)
-                        continue;
                     break;
                 case 'q':
                     load_mutex.lock();
@@ -578,6 +581,8 @@ class ETL {
     }
 
     void draw() {
+        static const std::pair<Plate, Vehicle> default_car = std::make_pair(
+            Plate{"-------"}, Vehicle{"", "", -1, {0, 0}, -1, 0, -1});
         clear();
         printw("Dashboard\n\n");
 
@@ -585,7 +590,7 @@ class ETL {
         printw("Número de veículos: %d\n", info.num_vehicles[ALL]);
         printw("Número de veículos acima do limite de velocidade: %d\n",
             info.num_vehicles[ABOVE_SPEED_LIMIT]);
-        printw("Tempo decorrido: %.2f segundos\n\n", info.time_elapsed);
+        printw("Tempo entre simulação e análise: %.6f segundos;\n\n", info.time_elapsed);
 
         std::string filter_name;
 
@@ -601,8 +606,12 @@ class ETL {
                 break;
         }
 
-        std::pair<Plate, Vehicle>* data = &processed[current_vehicle.first][current_vehicle.second];
-        Vehicle& v = data->second;
+        const std::pair<Plate, Vehicle>* data;
+        if (info.num_vehicles[current_filter] == 0)
+            data = &default_car;
+        else
+            data = &processed[current_vehicle.first][current_vehicle.second];
+        const Vehicle& v = data->second;
 
         printw("< %s (%d/%d) >\n\n", filter_name.c_str(), current_absolute_value,
             info.num_vehicles[current_filter]);
@@ -613,10 +622,7 @@ class ETL {
             printw("\tVelocidade: %.2f\n", v.speed);
         else
             printw("\tVelocidade: -\n");
-        if (v.acceleration >= 0)
-            printw("\tAceleração: %.2f\n", v.acceleration);
-        else
-            printw("\tAceleração: -\n");
+        printw("\tAceleração: %.2f\n", v.acceleration);
         if (v.risk >= 0)
             printw("\tRisco de colisão: %.2f\n", v.risk);
         else
