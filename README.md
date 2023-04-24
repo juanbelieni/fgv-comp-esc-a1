@@ -32,7 +32,7 @@ Para utilizar o programa de simulação, basta executar pelo terminal o arquivo 
 
 Exemplo de linha da comando para executar o programa:  
 ```bash
-py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15
+py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
 ```
 Onde:
 - -n: nome da rodovia;
