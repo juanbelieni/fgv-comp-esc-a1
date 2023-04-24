@@ -24,20 +24,51 @@ necessários ao sistema.
 Ter instalado em sua máquina:  
 - Python 3.10 ou superior
 - Biblioteca ncurses para C++
+
+Recomendamos que busque por como proceder com a instalação do ncurses em seu sistema operacional. Acreditamos que os seguintes comandos devem auxiliar:
+
+Ubuntu
+```bash
+sudo apt-get install libncurses5-dev libncursesw5-dev
+```
+
+Arch Linux
+```bash
+sudo pacman -S ncurses
+```
+
+OSX
+```bash
+brew install ncurses
+```
   
-OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
+OBS: Dependendo do tamanho de fonte da sua IDE ou do seu terminal, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
-Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível, definir pelo argumento ```-n``` o nome da rodovia e, opcionalmente, escolher valores para outros argumentos.
+Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível. Junto a isto, em outro terminal execute o arquivo cpp para a etapa de ETL e de visualização do dashboard.
 
-Exemplo de linha da comando para executar o programa:  
+Exemplo de linha da comando para executar o programa no Windows:  
 ```bash
-py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15
+py -3.10 highway-simulator/main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p -o data
 ```
-Onde:
+
+Exemplo de linha da comando para executar o programa no Linux:  
+```bash
+python3 highway-simulator/main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p -o data
+```
+
+Para compilar o programa C++:
+```bash
+g++ main.cpp -std=c++20 -lncurses -o main
+```
+
+Para ver no console os parâmetros disponíveis do script python, execute o parâmetro ```-h``` ou ```--help```.
+
+Ou, use esta lista como guia:
 - -n: nome da rodovia;
 - -l: número de faixas;
 - -s: velocidada limite;
+- -sl: limite de velocidade;
 - -pv: probabilidade de um novo veículo ser criado;
 - -pl: probabilidade de mudar de faixa;
 - -pc: probabilidade de colisão;
@@ -46,78 +77,8 @@ Onde:
 - -vmin: velocidade mínima;
 - -amax: aceleração máxima;
 - -amin: aceleração mínima;
+- -d: duração em milissegundos de cada iteração;
+- -o: diretório do arquivo de saída;
+- -p: mostra a simulação no console.
   
-Todos os parâmetros são opcionais, exceto o nome da rodovia. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
-
-## Modelagem
-
-### Simulação da rodovia
-
-A programação dessa simulação se baseia numa modelagem discreta dos espaço e do tempo. I.e., a cada ciclo, o programa calcula a próxima posição de um veículo baseado em sua posição atual e velocidade, e nas informações de aceleração e movimentação de outros carros. Desta maneira, ao final do ciclo, a posição dos carros é armazenada em disco para uso futuro do ETL.  
-  
-Para a fácil visualização desses dados, cada rodovia foi planejada como sendo duas matrizes com $n$ linhas cada, onde cada linha representa uma faixa e cada coluna representa uma distância. Paralelo a isso, cada automóvel foi modelado possuindo uma aceleração $a$ e uma velocidade $v$, tais que $a\in \mathbb{Z}$ e $v\in \mathbb{N}\cup \lbrace 0 \rbrace$. A simulação implementada possui também a probabilidade de entrada de um novo veículo em cada pista, de um veículo trocar de pista e de ocorrer uma colisão. Com isso, cada célula da matriz pode conter de $0$ a $m$ veículos, isto na ocorrência de colisões, que após alguns ciclos serão removidas da rodovia.  
-  
-A cada ciclo, as informações dos veículos são atualizadas do veículo mais distante até o mais perto do início da pista. Desta forma, a cada ciclo, é dado ao veículo sua nova posição. Além disso, a partir da probabilidade de troca de faixa, uma nova faixa "desejável" é definida, e é verificado se algum tipo de colisão vai ocorrer. Se sim, há uma possibilidade desse veículo bater. Porém, caso isso não aconteça, o veículo tentará trocar de faixa ou ficar na mesma mas diminuindo sua velocidade.
-
-### ETL
-
-**Parágrafo para falar do ETL**    
-  
-### Informações de cada arquivo 
-Voltando a simulação em si, em suma o programa funciona da seguinte maneira:  
-  
-class VehiclePosition:  
-"""Classe que representa a posição de um veículo na rodovia"""  
-
-- lane (int): faixa em que o veículo está;
-- dist (int): distância do início da rodovia;
-
-class Vehicle:  
-"""Classe que representa um veículo"""  
-
-- id (str): placa;  
-- pos (VehiclePosition): posição (faixa e distância do início do percurso);  
-- speed (int): velocidade;  
-- acceleration (int): aceleração;  
-- collision_time (Optional[int]): instante da colisão, se tiver acontecido;  
-- collide (Null): define parametros de colisão;  
-  
-
-class Highway:  
-"""Classe que representa uma rodovia"""  
-
-- name (str): nome da rodovia;
-- speed_limit (int): velocidade máxima permitida;  
-- lanes (int): número de faixas;  
-- size (int): tamanho da rodovia;  
-- outgoing_vehicles: veículos da andam da esquerda para a direita;  
-- incoming_vehicles: veículos que andam da direita para a esquerda;  
-- vehicles (list[Vehicle]): lista com todos os veículos que estão na rodovia;  
-  
-  
-class SimulationParams:
-"""Classe que representa os parâmetros da simulação"""  
-
-- new_vehicle_probability (float): probabilidade de um novo veículo ser criado;  
-- change_lane_probability (float): probabilidade de mudar de faixa;  
-- collision_probability (float): probabilidade de colisão;  
-- collision_duration (int): duração da colisão;  
-- max_speed (float): velocidade máxima;  
-- min_speed (float): velocidade mínima;  
-- max_acceleration (float): aceleração máxima;  
-- min_acceleration (float): aceleração mínima;  
-  
-
-class Simulation:
-"""Classe que representa a simulação"""  
-
-- highway (Highway): rodovia;
-- params (SimulationParams): parâmetros da simulação;
-- cycle (int): ciclo atual;
-- run (método): executa a simulação;
-- generate_vehicles (Null): gera novos veículos;
-- move_vehicles (Null): move os veículos;
-- remove_collisions (Null): remove veículos que colidiram;
-- print_status (Null): imprime uma atualização dos parâmetros relacionados à rodovia;
-- report_vehicles (Null): salva os dados dos veículos em txt;
-
+Todos os parâmetros são opcionais. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
