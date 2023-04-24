@@ -34,10 +34,17 @@ Exemplo de linha da comando para executar o programa:
 ```bash
 py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
 ```
-Onde:
+
+Para ver no console os parâmetros disponíveis, execute o comando:
+```bash
+py -3.10 main.py -h
+```
+
+Acelerando o processo de ajuda, aqui estão os parâmetros disponíveis:
 - -n: nome da rodovia;
 - -l: número de faixas;
 - -s: velocidada limite;
+- -sl: limite de velocidade;
 - -pv: probabilidade de um novo veículo ser criado;
 - -pl: probabilidade de mudar de faixa;
 - -pc: probabilidade de colisão;
@@ -46,5 +53,8 @@ Onde:
 - -vmin: velocidade mínima;
 - -amax: aceleração máxima;
 - -amin: aceleração mínima;
+- -d: duração em milissegundos de cada iteração;
+- -o: arquivo de saída;
+- -p: mostra a simulação no console.
   
-Todos os parâmetros são opcionais, exceto o nome da rodovia. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
+Todos os parâmetros são opcionais. Caso algum parâmetro não seja passado, o programa irá utilizar os valores padrão.
