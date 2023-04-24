@@ -41,11 +41,6 @@ OSX
 ```bash
 brew install ncurses
 ```
-
-Windows
-```bash
-pacman -S ncurses
-```
   
 OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
