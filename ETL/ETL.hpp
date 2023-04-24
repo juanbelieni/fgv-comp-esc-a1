@@ -69,7 +69,7 @@ class ETL {
 
     void run(const std::vector<std::string>& folders) {
         if (n_threads < 3)
-            throw std::runtime_error("Número de threads deve ser maior que ou igual a 2");
+            throw std::runtime_error("Número de threads deve ser maior que ou igual a 3");
 
         // Para facilitar o uso da variável, subtrai uma thread que será dedicada ao dashboard
         n_threads -= 2;
@@ -88,22 +88,12 @@ class ETL {
 
         // Procura arquivos para processar indefinidamente
         while (true) {
-            std::cout << "Starting new cycle" << std::endl;
             // Define o caminho do próximo arquivo com base num índice que é incrementado
             // Antes de abrir o arquivo, espera até que um arquivo temporário seja criado,
             // o que indica que o arquivo está totalmente preenchido com os dados
             int folder = 0;
             std::string path;
             std::string temp_path;
-
-
-            // Cria os arquivos temporários para que eu não tenha que rodar o mock
-            for (int i = 0; i < n_files; i++) {
-                temp_path = std::string("data/") + std::to_string(i) + temp_end;
-                std::ofstream wow(temp_path);  // apagar depois!!!
-                wow.close();
-            }
-
 
             while (true) {
                 // Verifica em cada uma das pastas analisadas se o arquivo existe
@@ -221,7 +211,6 @@ class ETL {
             cv.notify_all();
 
             should_draw = true;
-            current_filter = ALL;
             current_absolute_value = 1;
             current_vehicle = std::make_pair(0, 0);
             load_lock.unlock();
@@ -238,8 +227,9 @@ class ETL {
             should_draw = true;
             load_lock.unlock();
             load_cv.notify_one();
-
-            std::this_thread::sleep_for(std::chrono::seconds(10));
+            
+            // Descomente para parar de dormir
+            // std::this_thread::sleep_for(std::chrono::seconds(2));
             file_indices[highway] = (file_indices[highway] + 1) % n_files;
         }
         n_threads += 2;
@@ -372,12 +362,16 @@ class ETL {
                 // Calcula velocidade como deslocamento dividido por tempo decorrido
                 car->speed = static_cast<float>(distance) /
                     (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                if (car->speed == -0.0f)
+                    car->speed = 0.0f;
                 
                 if (positions.size() > 2) {
                     float prev_acceleration = car->acceleration;
                     // Calcula aceleração como velocidade dividida por tempo decorrido
                     car->acceleration = (car->speed - prev_speed) /
                         (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                    if (car->acceleration == -0.0f)
+                        car->acceleration = 0.0f;
                     
                     if (positions.size() > 3) {
                         // float time_to_collision = -(current->speed + prev_speed) /
@@ -501,7 +495,8 @@ class ETL {
     /// Retorna true se houve mudança no valor do veículo atual.
     bool find_previous() {
         for (int i = current_vehicle.first; i >= 0; i--) {
-            for (int j = current_vehicle.second - 1; j >= 0; j--) {
+            int j = i == current_vehicle.first ? current_vehicle.second - 1 : processed[i].size() - 1;
+            for (; j >= 0; j--) {
                 if (processed[i][j].second.flags[current_filter]) {
                     current_vehicle = std::make_pair(i, j);
                     current_absolute_value--;
@@ -515,7 +510,8 @@ class ETL {
     /// Retorna true se houve mudança no valor do veículo atual.
     bool find_next() {
         for (int i = current_vehicle.first; i < processed.size(); i++) {
-            for (int j = current_vehicle.second + 1; j < processed[i].size(); j++) {
+            int j = i == current_vehicle.first ? current_vehicle.second + 1 : 0;
+            for (; j < processed[i].size(); j++) {
                 if (processed[i][j].second.flags[current_filter]) {
                     current_vehicle = std::make_pair(i, j);
                     current_absolute_value++;
@@ -549,6 +545,8 @@ class ETL {
                     break;
                 case KEY_RIGHT:
                     changed = find_next();
+                    if (!changed)
+                        continue;
                     break;
                 case 'q':
                     load_mutex.lock();

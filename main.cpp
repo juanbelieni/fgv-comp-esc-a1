@@ -10,7 +10,7 @@ using std::endl;
 
 int main(int argc, char** argv) {
     // Argumentos: número de threads (mínimo 3) e tamanho da fila do serviço externo
-    ETL etl(3, 10);
+    ETL etl(10, 10);
     std::vector<std::string> folders;
     // O comportamento padrão é verificar apenas a pasta data/
     if (argc == 1)
