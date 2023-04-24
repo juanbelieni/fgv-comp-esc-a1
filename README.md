@@ -45,7 +45,7 @@ brew install ncurses
 OBS: Dependendo do tamanho de fonte da sua IDE ou do seu terminal, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
-Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível. Junto a isto, em outro terminal execute o arquivo cpp para a etapa de ETL e de visualização do dashboard.
+Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível. Junto a isto, em outro terminal execute o arquivo cpp para a etapa de ETL e de visualização do dashboard. Também é necessário criar uma pasta para a transferência dos dados entre o Mock e o ETL. Por padrão, utilizamos `/data`.
 
 Exemplo de linha da comando para executar o programa no Windows:  
 ```bash
