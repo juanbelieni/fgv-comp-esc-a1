@@ -50,19 +50,24 @@ pacman -S ncurses
 OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou aumentar o tamanho para que a simulação seja visualizada corretamente.
 
 ## Manual de instruções
-Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível, definir pelo argumento ```-n``` o nome da rodovia e, opcionalmente, escolher valores para outros argumentos.
+Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível. Junto a isto, em outro terminal execute o arquivo cpp para a etapa de ETL e de visualização do dashboard.
 
 Exemplo de linha da comando para executar o programa no Windows:  
 ```bash
-py -3.10 main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
+py -3.10 highway-simulator/main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
 ```
 
 Exemplo de linha da comando para executar o programa no Linux:  
 ```bash
-python3 main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p
+python3 highway-simulator/main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p
 ```
 
-Para ver no console os parâmetros disponíveis, execute o parâmetro ```-h``` ou ```--help```.
+Para compilar o programa cpp:
+```bash
+g++ main.cpp -std=c++20 -lncurses -o main
+```
+
+Para ver no console os parâmetros disponíveis do arquivo python, execute o parâmetro ```-h``` ou ```--help```.
 
 Ou, use esta lista como guia:
 - -n: nome da rodovia;
