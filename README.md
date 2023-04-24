@@ -30,17 +30,19 @@ OBS: Dependendo do tamanho de fonte da sua IDE, pode ser necessário diminuir ou
 ## Manual de instruções
 Para utilizar o programa de simulação, basta executar pelo terminal o arquivo ```main.py``` usando Python em versão compatível, definir pelo argumento ```-n``` o nome da rodovia e, opcionalmente, escolher valores para outros argumentos.
 
-Exemplo de linha da comando para executar o programa:  
+Exemplo de linha da comando para executar o programa no Windows:  
 ```bash
-py -3.10 main.py -n "Nova Iorque" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
+py -3.10 main.py -n "Golden Gate Bridge" -l 3 -s 5 -pv 0.1 -pl 0.20 -pc 0.15 -p
 ```
 
-Para ver no console os parâmetros disponíveis, execute o comando:
+Exemplo de linha da comando para executar o programa no Linux:  
 ```bash
-py -3.10 main.py -h
+python3 main.py -n "Ponte Rio-Niterói" -l 4 -s 3 -pv 0.2 -pl 0.20 -pc 0.3 -p
 ```
 
-Acelerando o processo de ajuda, aqui estão os parâmetros disponíveis:
+Para ver no console os parâmetros disponíveis, execute o parâmetro ```-h``` ou ```--help```.
+
+Ou, use esta lista como guia:
 - -n: nome da rodovia;
 - -l: número de faixas;
 - -s: velocidada limite;
