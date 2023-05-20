@@ -123,7 +123,7 @@ class ETL {
             int n_lanes = str_to_int(data, index, ' ');
             int extension = str_to_int(data, index, ' ');
             // Obtém a velocidade em unidades de deslocamento e converte para float
-            float max_speed = str_to_int(data, index, '\n');
+            float max_speed = str_to_int(data, index, '\0');
             // Coloca a velocidade máxima na mesma escala da velocidade computada para os veículos
             // max_speed /= cycle_times[highway][cycle] - cycle_times[highway][cycle - 1];
             // Lê o restante dos dados do arquivo, deixando o primeiro e o último caracteres
@@ -334,7 +334,7 @@ class ETL {
             }
             
             // Transforma os dois índices da faixa em um só para facilitar acesso ao array
-            int lane = (data[i] - '0') * n_lanes / 2;
+            int lane = (data[i] - '0') * n_lanes;
             i += 2;
             lane += data[i] - '0';
             i += 2;
@@ -348,7 +348,7 @@ class ETL {
         new_processed[thread_num].resize(0);
     }
 
-    void transform(int thread_num, int max_speed) {
+    void transform(int thread_num, float max_speed) {
         int risk_count = 0;
         int speed_count = 0;
         for (Plate& plate : modified[thread_num]) {
@@ -378,8 +378,9 @@ class ETL {
                         car->acceleration = 0.0f;
                     
                     if (positions.size() > 3) {
+                        // float x = 2.0f * (car->speed - max_speed) / max_speed + car->acceleration / max_speed;
+                        float x = 3.0f * (car->speed + car->speed * std::abs(car->acceleration)) / max_speed - 5.0f;
                         // Cálculo do risco de colisão usando a função sigmoide
-                        float x = 16 * (car->speed + car->speed * std::abs(car->acceleration)) / max_speed - 6;
                         car->risk = 1.0f / (1.0f + std::exp(-x));
                     } else {
                         car->risk = -1.0f;
