@@ -105,15 +105,6 @@ parser.add_argument(
     help="Duration (in milliseconds) of each cycle",
     default=1,
 )
-
-parser.add_argument(
-    "-o",
-    "--output-dir",
-    type=str,
-    help="Output directory",
-    required=False,
-)
-
 parser.add_argument(
     '-p',
     '--print',

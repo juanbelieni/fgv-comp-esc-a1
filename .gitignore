@@ -177,3 +177,6 @@ pyrightconfig.json
 data/
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+highway-simulator/proto
+ETL/proto

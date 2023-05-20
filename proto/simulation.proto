@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package simulation;
+
+message Empty {}
+
+message Vehicle {
+  string plate = 1;
+  bool direction = 2;
+  uint32 lane = 3;
+  uint32 distance = 4;
+}
+
+message Highway {
+  string name = 1;
+  uint32 lanes = 2;
+  uint32 size = 3;
+  uint32 speed_limit = 4;
+}
+
+message SimulationCycle {
+  uint32 cycle = 1;
+  uint32 timestamp = 2;
+  Highway highway = 3;
+  repeated Vehicle vehicles = 4;
+}
+
+service SimulationService {
+  rpc ReportCycle (SimulationCycle) returns (Empty);
+}
