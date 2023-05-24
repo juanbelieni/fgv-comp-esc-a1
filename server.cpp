@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
         // Argumentos: número de threads (mínimo 5) e tamanho da fila do serviço externo
         // O argumento para run é o tempo até que o servidor seja interrompido
         ETL etl(10, 5);
-        etl.run(30);
+        etl.run(0);
         results.push_back(etl.summary());
     }
 

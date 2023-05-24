@@ -83,7 +83,7 @@ class ETL {
         grpc::Status ReportCycle(grpc::ServerContext* context, const sim::SimulationCycle* cycle,
                                  sim::Empty* response) override {
             std::lock_guard<std::mutex> lock(mutex);
-            queue.push(*cycle);
+            queue.push(std::move(*cycle));
             cv.notify_one();
             return grpc::Status::OK;
         }
@@ -181,7 +181,6 @@ class ETL {
     std::vector<std::pair<sim::SimulationCycle, int>> cycles_to_process;
     std::vector<std::pair<sim::SimulationCycle, int>> cycles_processing;
 
-    std::condition_variable cv;
     // Mutex "principal" que vai impedir concorrência entre as threads em E e T
     std::mutex mutex;
     // Serviço externo que ainda está me assombrando
@@ -269,6 +268,9 @@ class ETL {
         for (int i = 0; i < num_threads; i++)
             thread_data[i].thread = std::thread(&ETL::transform, this, i);
         join_all_threads();
+
+        for (int i = 0; i < num_threads; i++)
+            thread_data[i].vehicles_processed = std::move(thread_data[i].vehicles_processing);
         // Força a atualização do dashboard
         force_redraw(true);
 
@@ -278,7 +280,6 @@ class ETL {
         join_all_threads();
         force_redraw();
 
-        std::lock_guard<std::mutex> lock(mutex);
         etl_running = false;
     }
 
@@ -303,20 +304,14 @@ class ETL {
 
     void orchestrator() {
         while (true) {
-            {
-                std::lock_guard<std::mutex> lock(load_mutex);
-                if (should_exit)
-                    break;
-            }
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                if (cycles_to_process.size() && !etl_running) {
-                    expand_map();
-                    cycles_processing = std::move(cycles_to_process);
-                    std::thread runner(&ETL::etl, this);
-                    runner.detach();
-                    etl_running = true;
-                }
+            if (should_exit)
+                break;
+            if (cycles_to_process.size() && !etl_running) {
+                expand_map();
+                cycles_processing = std::move(cycles_to_process);
+                std::thread runner(&ETL::etl, this);
+                runner.detach();
+                etl_running = true;
             }
             std::optional<sim::SimulationCycle> answer = server_service.get_data();
             // Se não houve resposta após 0.5 segundo, tenta novamente
@@ -465,6 +460,7 @@ class ETL {
         vehicle_counts[ABOVE_SPEED_LIMIT] += speed_count;
     }
 
+    // Obtém informações do serviço externo para os veículos que não as possuem
     void transform_continued(int thread_id) {
         // Passa a usar dados movidos para outro vetor, deixando vehicles_processing para os próximos
         // ciclos e atualizando os dados atualmente no dashboard conforme o serviço externo responde
@@ -681,7 +677,7 @@ class ETL {
         if (info.num_vehicles[info.vehicle_filter] == 0)
             data = &default_car;
         else
-            data = &thread_data[info.vehicle_i].vehicles_processed[info.vehicle_j];
+            data = &get_processed(info.vehicle_i)[info.vehicle_j];
         const Vehicle& v = data->second;
 
         printw("< %s (%d/%d) >\n\n", vehicle_filter_name, info.absolute_value,
