@@ -26,7 +26,7 @@ def report_cycle(
 ):
 
     pb2_vehicles = [
-        pb2.Vehicle(
+        pb2.RawVehicle(
             plate=vehicle.id,
             direction=direction,
             lane=vehicle.pos.lane,
@@ -47,7 +47,7 @@ def report_cycle(
 
     pb2_simulation_cycle = pb2.SimulationCycle(
         cycle=cycle,
-        timestamp=int(time()),
+        timestamp=time(),
         highway=pb2_highway,
         vehicles=pb2_vehicles,
     )

@@ -1,31 +1,41 @@
 #ifndef ETL_HPP_
 #define ETL_HPP_
 
-#include <chrono>
-#include <condition_variable>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
+// Fixes some IntelliSense errors in the IDE
+#define GRPC_CALLBACK_API_NONEXPERIMENTAL
+
 #include <locale.h>
 #include <ncurses.h>
+#undef OK  // macro de péssimo nome definido como `(0)` que quebra o gRPC
+#include <grpcpp/grpcpp.h>
+
+#include <chrono>
+#include <condition_variable>
+#include <iostream>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "./external.hpp"
-#include "./conversions.hpp"
+#include "proto/simulation.grpc.pb.h"
+
+namespace sim = simulation;
+
+template<>
+struct std::hash<sim::Highway> {
+    size_t operator()(const sim::Highway& highway) const noexcept {
+        return std::hash<std::string>()(highway.name());
+    }
+};
 
 class ETL {
-    static const int buffer_size = 65536;
     static const int default_map_size = 4096;
-    static const int n_files = 5;
-    
- public:
+
     struct Position {
-        int lane;
-        int distance;
-        int cycle;
+        uint32_t lane;
+        uint32_t distance;
     };
 
     // Armazena os dados instantâneos mais recentes de um veículo para o cálculo do risco
@@ -34,6 +44,7 @@ class ETL {
         std::string model;
         int year = -1;
 
+        int highway_index;
         Position last_pos;
         // Velocidade do veículo em unidades deconhecidas de distância (talvez carro) por segundo
         float speed;
@@ -49,337 +60,380 @@ class ETL {
         Vehicle vehicle;
     };
 
-    ETL(int n_threads, int external_queue_size) : n_threads(n_threads), service(external_queue_size) {
+    struct HighwayData {
+        sim::Highway highway;
+        std::vector<uint32_t> cycles;
+        // Armazena o instante de tempo de realização de cada ciclo da simulação
+        std::vector<double> times;
+        // Armazena o tempo decorrido desde o início da simulação até a chegada no dashboard
+        double time_elapsed;
+    };
+
+    struct ThreadData {
+        std::thread thread;
+        // Armazena as placas de veículos que tiveram informações modificadas e ainda não foram processadas
+        std::vector<std::string> modified;
+        // Armazena os veículos com dados computados antes que sejam exibidos no terminal
+        std::vector<std::pair<std::string, Vehicle>> vehicles_processing;
+        // Recebe os dados do vetor anterior e é atualizado dinamicamente enquanto é usado pelo dashboard
+        std::vector<std::pair<std::string, Vehicle>> vehicles_processed;
+    };
+
+    class SimulationServiceImpl final : public sim::SimulationService::Service {
+        grpc::Status ReportCycle(grpc::ServerContext* context, const sim::SimulationCycle* cycle,
+                                 sim::Empty* response) override {
+            std::lock_guard<std::mutex> lock(mutex);
+            queue.push(*cycle);
+            cv.notify_one();
+            return grpc::Status::OK;
+        }
+
+     public:
+        std::queue<sim::SimulationCycle> queue;
+        std::condition_variable cv;
+        std::mutex mutex;
+
+        SimulationServiceImpl() {}
+
+        /// Retorna um valor que pode ou não conter um ciclo de simulação. Caso a fila
+        /// esteja vazia, espera pelo número fornecido de milissegundos ou até que os
+        /// dados sejam recebidos.
+        std::optional<sim::SimulationCycle> get_data(int64_t timeout = 500) {
+            std::unique_lock<std::mutex> lock(mutex);
+            // Se a fila estiver vazia, espera até que não esteja
+            if (queue.empty()) {
+                cv.wait_for(lock, std::chrono::milliseconds(timeout),
+                    [this] { return !queue.empty(); });
+                if (queue.empty())
+                    return {};
+            }
+            auto cycle = std::move(queue.front());
+            queue.pop();
+            return cycle;
+        }
+    };
+
+ public:
+    ETL(int num_threads, int external_queue_size) : num_threads(num_threads), service(external_queue_size) {
         // O serviço deve ser inicializado junto da classe atual, pois ele não possui construtor padrão
         vehicles.reserve(default_map_size);
-        data = new char[buffer_size];
-        current_filter = ALL;
-        current_absolute_value = 1;
-        current_vehicle = std::make_pair(0, 0);
-        should_exit = false;
+        highways.reserve(100);
     }
 
     ~ETL() {
-        delete[] data;
+        if (timeout_thread.joinable())
+            timeout_thread.join();
     }
 
-    void set_thread_count(int n_threads) {
-        this->n_threads = n_threads;
+    void set_thread_count(int num_threads) {
+        this->num_threads = num_threads;
     }
 
-    void run(const std::vector<std::string>& folders) {
-        if (n_threads < 3)
-            throw std::runtime_error("Número de threads deve ser maior que ou igual a 3");
+    double summary() const {
+        return info.num_runs ? (info.total_time / info.num_runs) : std::numeric_limits<double>::infinity();
+    }
 
-        // Para facilitar o uso da variável, subtrai uma thread que será dedicada ao dashboard
-        n_threads -= 2;
-        const std::string path_end = ".csv";
-        const std::string temp_end = ".tmp";
+    /// Inicia a execução do ETL. O comportamento padrão com `timeout` igual a 0 é de
+    /// esperar o usuário pressionar a tecla 'q' para encerrar a execução. Caso haja um
+    /// valor maior (em segundos), o servidor interrompe a execução após o tempo especificado.
+    void run(double timeout = 0.0) {
+        /*
+         *  Mínimo de 5 threads além daquela que recebeu a chamada de `run`:
+         *  1 thread para a verificação de mensagens dos clientes.
+         *  Pelo menos 1 thread para executar Extract: a atual gerencia a chegada de novos
+         *  dados por RPC e a(s) outra(s) processa(m) os dados recebidos.
+         *  Pelo menos 1 thread para executar Transform.
+         *  2 threads para executar Load: uma para receber requisições de atualização
+         *  do dashboard e uma para verificação de input do usuário.
+         *  Esse número não leva em consideração threads que ficarão em espera na maioria
+         *  do tempo, como a thread de timeout, que apenas acorda para encerrar o programa.
+        */
+        if (num_threads < 5)
+            throw std::runtime_error("Número de threads deve ser maior que ou igual a 5.");
 
-        std::ifstream file;
-        // Usa um índice para identificar o próximo arquivo a ser lido para a etapa de
-        // Extract do ETL, que é incrementado a cada ciclo de simulação e retorna ao 0
-        // após atingir uma constante para evitar que muitos arquivos sejam criados
-        std::vector<int> file_indices(folders.size(), 0);
-        cycle_times.resize(folders.size());
-        double now_ = now();
-        for (auto& times : cycle_times) {
-            times.resize(default_map_size / 4);  // valor arbitrário
-            times.push_back(now_);
+        // Subtrai do número de threads para manter apenas a quantidade que é flexível
+        num_threads -= 3;
+        // Inicializa o dashboard
+        {
+            setlocale(LC_ALL, "");
+            initscr();
+            noecho();
+            keypad(stdscr, true);
+            std::thread dashboard(&ETL::load, this);
+            dashboard.detach();
         }
-        bool first_time = true;
+        std::thread orchestrator_thread(&ETL::orchestrator, this);
 
-        // Procura arquivos para processar indefinidamente
-        while (true) {
-            // Define o caminho do próximo arquivo com base num índice que é incrementado
-            // Antes de abrir o arquivo, espera até que um arquivo temporário seja criado,
-            // o que indica que o arquivo está totalmente preenchido com os dados
-            int folder = 0;
-            std::string path;
-            std::string temp_path;
-            std::cout << "Procurando um arquivo para iniciar..." << std::endl;
-
-            while (true) {
-                // Verifica em cada uma das pastas analisadas se o arquivo existe
-                temp_path = folders[folder] + std::to_string(file_indices[folder]) + temp_end;
-                if (std::filesystem::exists(temp_path)) {
-                    // Ao encontrar um arquivo para análise, começa o ETL
-                    path = folders[folder] + std::to_string(file_indices[folder]) + path_end;
-                    break;
-                }
-
-                folder = (folder + 1) % folders.size();
-            }
-            highway = folder;
-
-            file.open(path);
-            file.getline(data, buffer_size);
-            int index = 0;
-            // Obtém o número do ciclo de simulação atual e soma um para poder acessar o elemento
-            // anterior mesmo quando o índice for 0
-            cycle = str_to_int(data, index, ' ') + 1;
-            // Salva o instante de tempo em que o ciclo foi computado
-            cycle_times[highway][cycle] = str_to_double(data, index, ' ');
-            int n_lanes = str_to_int(data, index, ' ');
-            int extension = str_to_int(data, index, ' ');
-            // Obtém a velocidade em unidades de deslocamento e converte para float
-            float max_speed = str_to_int(data, index, '\0');
-            // Coloca a velocidade máxima na mesma escala da velocidade computada para os veículos
-            // max_speed /= cycle_times[highway][cycle] - cycle_times[highway][cycle - 1];
-            // Lê o restante dos dados do arquivo, deixando o primeiro e o último caracteres
-            // do buffer como '\n' para facilitar verificações mais à frente
-            file.read(data + 1, buffer_size - 2);
-            int total_characters = file.gcount();
-            file.close();
-
-            data[0] = '\n';
-            data[total_characters + 1] = '\n';
-
-            // Apaga o arquivo temporário
-            std::filesystem::remove(temp_path);
-
-            threads.resize(0);
-            modified.resize(n_threads);
-            new_processed.resize(n_threads);
-            threads_working = n_threads + 1;
-            int new_plates = 0;
-            int chunk_size = total_characters / n_threads;
-            std::unique_lock<std::mutex> lock(mutex);
-            for (int i = 0; i < n_threads; i++) {
-                // Não há necessidade de chamar o destrutor das placas, pois elas não possuem
-                // memória dinâmica, então basta "redimensionar" o vetor para 0 antes de começar
-                modified[i].resize(0);
-                threads.emplace_back(&ETL::extract, this, i,
-                    1 + i * chunk_size, 1 + (i + 1) * chunk_size,
-                    n_lanes, max_speed, &new_plates);
-            }
-            // Espera até que todas as threads tenham lido a quantidade de novas linhas do arquivo,
-            // pois criar todas as threads duas vezes para o extract seria muito custoso
-            cv.wait(lock, [this] { return is_only_main_working(); });
-
-            // Calcula o novo tamanho da tabela de veículos e redimensiona se necessário
-            int new_size = vehicles.size() + new_plates;
-            int capacity = vehicles.bucket_count();
-            while (capacity < 3 * new_size / 4)
-                capacity *= 2;
-            if (capacity > vehicles.bucket_count())
-                vehicles.reserve(capacity);
-            
-            threads_working = 0;
-            lock.unlock();
-            cv.notify_all();
-            
-            // Espera até que todas as threads terminem a extração
-            for (auto& thread : threads)
-                thread.join();
-            threads.clear();
-            lock.lock();
-
-            vehicle_counts[ALL] = 0;
-            vehicle_counts[COLLISION_RISK] = 0;
-            vehicle_counts[ABOVE_SPEED_LIMIT] = 0;
-            threads_working = n_threads + 1;
-            for (int i = 0; i < n_threads; i++)
-                threads.emplace_back(&ETL::transform, this, i, max_speed);
-            
-            // Espera até que todos os dados processados estejam prontos
-            cv.wait(lock, [this] { return is_only_main_working(); });
-
-            // Impede que o dashboard seja atualizado
-            std::unique_lock<std::mutex> load_lock(load_mutex);
-
-            // Se o usuário tentou encerrar, encerra o programa
-            int stop = should_exit;
-
-            info.num_vehicles[ALL] = vehicle_counts[ALL];
-            info.num_vehicles[COLLISION_RISK] = vehicle_counts[COLLISION_RISK];
-            info.num_vehicles[ABOVE_SPEED_LIMIT] = vehicle_counts[ABOVE_SPEED_LIMIT];
-            info.num_lanes = n_lanes;
-            info.time_elapsed = now() - cycle_times[highway][cycle];
-            // Move os dados para um vetor que será usado pelo dashboard
-            auto temp = std::move(processed);
-            processed = std::move(new_processed);
-            new_processed = std::move(temp);
-
-            // Se é a primeira execução, inicia a thread que estará em execução independente
-            if (first_time) {
-                setlocale(LC_ALL, "");
-                initscr();
-                noecho();
-                keypad(stdscr, true);
-                std::thread dashboard(&ETL::load, this);
-                dashboard.detach();
-                first_time = false;
-            }
-
-            // Notifica as threads para que elas obtenham os dados não prioritários
-            threads_working = 0;
-            lock.unlock();
-            cv.notify_all();
-
-            should_draw = true;
-            update_filter(current_filter, true);
-            load_lock.unlock();
-            load_cv.notify_one();
-
-            // Espera até que a comunicação com o serviço externo seja encerrada
-            for (auto& thread : threads)
-                thread.join();
-            threads.clear();
-
-            if (stop)
-                break;
-
-            // Força uma atualização do dashboard com as respostas do serviço externo mesmo
-            // sem input do usuário
-            load_lock.lock();
-            should_draw = true;
-            load_lock.unlock();
-            load_cv.notify_one();
-            
-            // Descomente para dormir por 2 segundos entre cada ciclo
-            // std::this_thread::sleep_for(std::chrono::seconds(2));
-            file_indices[highway] = (file_indices[highway] + 1) % n_files;
-        }
-        n_threads += 2;
+        this->listen(timeout);
+        orchestrator_thread.join();
+        num_threads += 3;
     }
 
  private:
+    // Mapeia os nomes de rodovias para suas filas de dados a processar
+    std::unordered_map<std::string, int> highway_idx;
+    std::vector<HighwayData> highways;
     // Mapeia a placa para os dados do veículo
-    std::unordered_map<Plate, VehicleData, Hash<Plate>> vehicles;
+    std::unordered_map<std::string, VehicleData> vehicles;
+    // Armazena threads e seus respectivos dados em processamento
+    std::vector<ThreadData> thread_data;
+    // Armazena os índices de ciclos que serão e que estão sendo processados
+    std::vector<std::pair<sim::SimulationCycle, int>> cycles_to_process;
+    std::vector<std::pair<sim::SimulationCycle, int>> cycles_processing;
+
     std::condition_variable cv;
     // Mutex "principal" que vai impedir concorrência entre as threads em E e T
     std::mutex mutex;
-    // Serviço que ainda está me assombrando
+    // Serviço externo que ainda está me assombrando
     SlowService service;
-    // Armazena as placas de veículos que tiveram informações modificadas e ainda não foram processadas
-    std::vector<std::vector<Plate>> modified;
-    // Armazena os veículos com dados computados antse que sejam exibidos no terminal (adoro templates)
-    std::vector<std::vector<std::pair<Plate, Vehicle>>> new_processed;
-    // Mesmo que o anterior, mas estes estão prontos e são usados pelo load
-    std::vector<std::vector<std::pair<Plate, Vehicle>>> processed;
-    std::vector<std::thread> threads;
-    // Armazena o instante de tempo de realização de cada ciclo da simulação
-    std::vector<std::vector<double>> cycle_times;
-    // Dados que serão lidos do arquivo de texto
-    char* data;
-    // Número atual de threads trabalhando, usado para sincronização
-    int threads_working;
-    // Gostaria de fazer com que isso fosse dinâmico, se sobrar tempo
-    int n_threads;
-    // Rodovia que está sendo processada atualmente
-    int highway;
-    // Número do ciclo de simulação atual
-    int cycle;
 
-    bool is_all_done() {
-        return threads_working == 0;
-    }
+    // Servidor gRPC
+    std::unique_ptr<grpc::Server> server;
+    // Serviço que implementa a interface do gRPC e gerencia o recebimento de dados
+    SimulationServiceImpl server_service;
+    // Thread usada para encerrar o servidor após um tempo
+    std::thread timeout_thread;
+    bool is_server_running = false;
 
-    bool is_only_main_working() {
-        return threads_working == 1;
-    }
+    int num_threads;
+    bool etl_running = false;
 
-    void find_next_line(int& i) {
-        while (data[i] != '\n')
-            i++;
-        i++;
-    }
-
-    void extract(int thread_num, int start, int end, int n_lanes, int max_speed, int* sum) {
-        // Começa sempre em uma nova linha, assim a divisão de start e end não é
-        // exatamente a usada e garantimos que todas as linhas são verificadas por completo
-        if (data[start - 1] != '\n')
-            find_next_line(start);
-
-        int i = start;
-        int count = 0;
-        auto none = vehicles.end();
-        while (i < end) {
-            Plate plate(data + i);
-            i += 8;
-            // Se a placa ainda não está registrada, incrementa o contador para preparar
-            // a estrutura de dados para receber o número correto de placas
-            auto it = vehicles.find(plate);
-            count += (it == none);
-            find_next_line(i);
+    int get_cycle_index(int highway_index) const {
+        int i;
+        for (i = 0; i < cycles_to_process.size(); i++) {
+            if (cycles_to_process[i].second == highway_index)
+                return i;
         }
-        // Espera até que todas as threads tenham terminado de contar as linhas
-        std::unique_lock<std::mutex> lock(mutex);
-        *sum += count;
-        threads_working--;
-        // Gostaria de notificar apenas a thread principal, mas o notify one não preserva a ordem
-        cv.notify_all();
-        // Espera até que o map tenha sido expandido
-        cv.wait(lock, [this] { return is_all_done(); });
-        lock.unlock();
+        return -1;
+    }
 
-        i = start;
-        while (i < end) {
-            Plate plate(data + i);
-            i += 8;
+    void expand_map() {
+        int max_size = vehicles.size();
+        for (const auto& [cycle, highway_index] : cycles_to_process) {
+            // Adiciona os dados da simulação aos vetores da rodovia correspondente
+            highways[highway_index].cycles.push_back(cycle.cycle());
+            highways[highway_index].times.push_back(cycle.timestamp());
 
-            // No código abaixo, como não podemos ter mais de uma thread tentando acessar a
-            // mesma placa, o único problema que pode ocorrer é a placa não estar registrada e
-            // ser inserida no mesmo espaço de memória em que outra placa que está sendo inserida
-            VehicleData* current;
-            auto it = vehicles.find(plate);
-            // Se a placa ainda não está registrada, cria seu registro sem condição de corrida
-            if (it == none) {
-                std::lock_guard<std::mutex> lock(mutex);
-                current = &vehicles[plate];
-            // Se a placa já está registrada, obtém um ponteiro para seus dados e os atualiza
-            } else {
-                current = &it->second;
+            // Computa o número máximo de veículos que podem ser adicionados
+            max_size += cycle.vehicles_size();
+        }
+        int capacity = vehicles.bucket_count();
+        // Duplica a capacidade atual até que possa acomodar todos esses veículos
+        while (capacity < max_size)
+            capacity *= 2;
+        // Se a capacidade atual for menor que a necessária, realoca o unordered_map
+        if (capacity > vehicles.bucket_count())
+            vehicles.reserve(capacity);
+    }
+
+    void force_redraw(bool reset = false) {
+        std::lock_guard<std::mutex> lock(load_mutex);
+        should_draw = true;
+        if (reset) {
+            update_filter(info.vehicle_filter, false, true);
+            for (int i = 0; i < 3; i++)
+                info.num_vehicles[i] = vehicle_counts[i];
+        }
+        load_cv.notify_one();
+    }
+
+    void join_all_threads() {
+        for (int i = 0; i < num_threads; i++)
+            thread_data[i].thread.join();
+    }
+
+    void etl() {
+        thread_data.resize(num_threads);
+        // Armazena o último índice de cada ciclo processado
+        std::vector<int> indices;
+        indices.reserve(cycles_processing.size());
+        int last_index = 0;
+        for (int i = 0; i < cycles_processing.size(); i++) {
+            last_index += cycles_processing[i].first.vehicles_size();
+            indices.push_back(last_index);
+        }
+
+        int chunk_size = last_index / num_threads;
+        for (int i = 0; i < num_threads; i++) {
+            thread_data[i].thread = std::thread(&ETL::extract, this, i,
+                i * chunk_size, (i + 1) * chunk_size, indices);
+        }
+        join_all_threads();
+
+        // Zera os contadores de veículos em cada categoria de filtro
+        vehicle_counts[VehicleFilter::ALL] = last_index;
+        vehicle_counts[VehicleFilter::COLLISION_RISK] = 0;
+        vehicle_counts[VehicleFilter::ABOVE_SPEED_LIMIT] = 0;
+
+        // Faz a transformação prioritária dos dados
+        for (int i = 0; i < num_threads; i++)
+            thread_data[i].thread = std::thread(&ETL::transform, this, i);
+        join_all_threads();
+        // Força a atualização do dashboard
+        force_redraw(true);
+
+        // Obtém os dados do serviço externo opcionalmente
+        for (int i = 0; i < num_threads; i++)
+            thread_data[i].thread = std::thread(&ETL::transform_continued, this, i);
+        join_all_threads();
+        force_redraw();
+
+        std::lock_guard<std::mutex> lock(mutex);
+        etl_running = false;
+    }
+
+    void listen(double timeout = 0.0) {
+        std::string server_address("localhost:50051");
+
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+        builder.RegisterService(&server_service);
+
+        server = builder.BuildAndStart();
+        is_server_running = true;
+        if (timeout != 0.0) {
+            timeout_thread = std::thread([this, timeout] {
+                std::this_thread::sleep_for(std::chrono::duration<double>(timeout));
+                quit();
+            });
+        }
+        // Função que nunca retorna, a não ser que o servidor seja encerrado por quit()
+        server->Wait();
+    }
+
+    void orchestrator() {
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lock(load_mutex);
+                if (should_exit)
+                    break;
             }
-            
-            // Transforma os dois índices da faixa em um só para facilitar acesso ao array
-            int lane = (data[i] - '0') * n_lanes;
-            i += 2;
-            lane += data[i] - '0';
-            i += 2;
-            int distance = str_to_int(data, i, '\n');
-            current->vehicle.last_pos = {lane, distance, cycle};
-            current->positions.push_back(current->vehicle.last_pos);
-            modified[thread_num].push_back(plate);
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (cycles_to_process.size() && !etl_running) {
+                    expand_map();
+                    cycles_processing = std::move(cycles_to_process);
+                    std::thread runner(&ETL::etl, this);
+                    runner.detach();
+                    etl_running = true;
+                }
+            }
+            std::optional<sim::SimulationCycle> answer = server_service.get_data();
+            // Se não houve resposta após 0.5 segundo, tenta novamente
+            if (!answer.has_value())
+                continue;
+            sim::SimulationCycle& cycle = answer.value();
+            auto it = highway_idx.find(cycle.highway().name());
+            int highway_index;
+
+            // Se a rodovia ainda não está registrada, adiciona ao vetor
+            if (it == highway_idx.end()) {
+                highway_index = highways.size();
+                highways.emplace_back(std::move(cycle.highway()));
+                highway_idx.emplace(highways.back().highway.name(), highway_index);
+            } else {
+                highway_index = it->second;
+            }
+            int cycle_index = get_cycle_index(highway_index);
+            // Se a rodovia não está na fila de processamento, ela é adicionada
+            if (cycle_index < 0)
+                cycles_to_process.emplace_back(std::move(cycle), highway_index);
+            // Se ela está na fila, substitui o ciclo antigo pelo mais recente
+            else
+                cycles_to_process[cycle_index].first = std::move(cycle);
         }
-        // Garante que o vetor que recebe os dados do transform está preparado para recebê-los
-        new_processed[thread_num].reserve(modified[thread_num].size());
-        new_processed[thread_num].resize(0);
     }
 
-    void transform(int thread_num, float max_speed) {
+    void extract(int thread_id, int start, int end, const std::vector<int>& indices) {
+        ThreadData& data = thread_data[thread_id];
+        // Corrige a divisão imprecisa e garante que todos os veículos serão processados
+        if (thread_id == num_threads - 1)
+            end = indices.back();
+        // Obtém o índice do ciclo que contém o primeiro veículo a ser processado
+        int cycle_index;
+        for (int i = 0; i < indices.size(); i++) {
+            if (indices[i] > start) {
+                cycle_index = i;
+                break;
+            }
+        }
+
+        // Variável que armazena o índice do último veículo no vetor local do ciclo,
+        // inicializada com o índice do ciclo anterior
+        int local_end = indices[std::max(0, cycle_index - 1)];
+        while (cycle_index < indices.size()) {
+            sim::SimulationCycle& cycle = cycles_processing[cycle_index].first;
+            int highway_index = cycles_processing[cycle_index].second;
+            int factor = highways[highway_index].highway.lanes() / 2;
+
+            auto none = vehicles.end();
+            // Começa pelo último do ciclo anterior e vai até o último veículo do ciclo atual
+            int i = local_end;
+            local_end = std::min(end, indices[cycle_index]);
+            while (i < local_end) {
+                const sim::RawVehicle& vehicle = cycle.vehicles(i++);
+                // No código abaixo, como não podemos ter mais de uma thread tentando acessar a
+                // mesma placa, o único problema que pode ocorrer é a placa não estar registrada e
+                // ser inserida no mesmo espaço de memória em que outra placa que está sendo inserida
+                VehicleData* current;
+                auto it = vehicles.find(vehicle.plate());
+                // Se a placa ainda não está registrada, cria seu registro sem condição de corrida
+                if (it == none) {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    current = &vehicles[vehicle.plate()];
+                // Se a placa já está registrada, obtém um ponteiro para seus dados e os atualiza
+                } else {
+                    current = &it->second;
+                }
+
+                // Transforma os dois índices da faixa em um só para facilitar acesso ao array
+                uint32_t lane = vehicle.lane() + vehicle.direction() * factor;
+                current->vehicle.highway_index = highway_index;
+                current->vehicle.last_pos = {lane, vehicle.distance()};
+                current->positions.push_back(current->vehicle.last_pos);
+                data.modified.push_back(vehicle.plate());
+            }
+            cycle_index++;
+        }
+        // Garante que o vetor que recebe os dados do transform está preparado
+        data.vehicles_processing.resize(0);
+        data.vehicles_processing.reserve(data.modified.size());
+    }
+
+    void transform(int thread_id) {
         int risk_count = 0;
         int speed_count = 0;
-        for (Plate& plate : modified[thread_num]) {
+        ThreadData& data = thread_data[thread_id];
+        for (const std::string& plate : data.modified) {
             VehicleData* current = &vehicles[plate];
             Vehicle* car = &current->vehicle;
+            int highway_index = car->highway_index;
+
             std::vector<Position>& positions = current->positions;
+            std::vector<uint32_t>& cycles = highways[highway_index].cycles;
+            float speed_limit = highways[highway_index].highway.speed_limit();
 
             // Efetua o cálculo da velocidade e aceleração apenas se houver mais de uma posição
             if (positions.size() > 1) {
                 float prev_speed = car->speed;
-
                 int last = positions.size() - 1;
-                int distance = positions[last].distance - positions[last - 1].distance;
+                int last_cycle = cycles.size() - 1;
 
                 // Calcula velocidade como deslocamento dividido por tempo decorrido
-                car->speed = static_cast<float>(distance);
-                    // / (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                car->speed = static_cast<float>(positions[last].distance - positions[last - 1].distance)
+                    / (cycles[last_cycle] - cycles[last_cycle - 1]);
                 if (car->speed == -0.0f)
                     car->speed = 0.0f;
-                
+
                 if (positions.size() > 2) {
-                    float prev_acceleration = car->acceleration;
-                    // Calcula aceleração como velocidade dividida por tempo decorrido
-                    car->acceleration = (car->speed - prev_speed);
-                        // / (cycle_times[highway][positions[last].cycle] - cycle_times[highway][positions[last - 1].cycle]);
+                    // Calcula aceleração como variação de velocidade dividida por tempo decorrido
+                    car->acceleration = (car->speed - prev_speed) 
+                        / (cycles[last_cycle] - cycles[last_cycle - 1]);
                     if (car->acceleration == -0.0f)
                         car->acceleration = 0.0f;
-                    
+
                     if (positions.size() > 3) {
-                        // float x = 2.0f * (car->speed - max_speed) / max_speed + car->acceleration / max_speed;
-                        float x = 3.0f * (car->speed + car->speed * std::abs(car->acceleration)) / max_speed - 5.0f;
+                        float x = 3.0f * (car->speed + car->speed * std::abs(car->acceleration)) / speed_limit - 5.0f;
                         // Cálculo do risco de colisão usando a função sigmoide
                         car->risk = 1.0f / (1.0f + std::exp(-x));
                     } else {
@@ -387,7 +441,7 @@ class ETL {
                     }
                 } else {
                     car->acceleration = 0.0f;
-                    car->risk = -1.0f;    
+                    car->risk = -1.0f;
                 }
             // Se não há dados suficientes, define como valores negativos para que possam ser
             // descartados facilmente na análise posterior
@@ -399,35 +453,30 @@ class ETL {
 
             car->flags[ALL] = true;
             car->flags[COLLISION_RISK] = car->risk >= 0.5f;
-            car->flags[ABOVE_SPEED_LIMIT] = car->speed > max_speed;
+            car->flags[ABOVE_SPEED_LIMIT] = car->speed > speed_limit;
             risk_count += car->flags[COLLISION_RISK];  // booleano é igual a 1 ou 0
             speed_count += car->flags[ABOVE_SPEED_LIMIT];
-            new_processed[thread_num].push_back(std::make_pair(plate, *car));
+            data.vehicles_processing.emplace_back(plate, *car);
         }
 
         // Incrementa os contadores de veículos em risco e acima da velocidade máxima
         std::unique_lock<std::mutex> lock(mutex);
-        int car_count = modified[thread_num].size();
-        vehicle_counts[ALL] += car_count;
         vehicle_counts[COLLISION_RISK] += risk_count;
         vehicle_counts[ABOVE_SPEED_LIMIT] += speed_count;
-        threads_working--;
-        cv.notify_all();
-        // Espera até que todas as threads tenham terminado essa parte do cálculo
-        cv.wait(lock, [this] { return is_all_done(); });
-        lock.unlock();
+    }
 
-        // Passa a usar dados movidos para outro vetor, deixando new_processed para os próximos
+    void transform_continued(int thread_id) {
+        // Passa a usar dados movidos para outro vetor, deixando vehicles_processing para os próximos
         // ciclos e atualizando os dados atualmente no dashboard conforme o serviço externo responde
-        for (auto& [plate, vehicle] : processed[thread_num]) {
+        for (auto& [plate, vehicle] : thread_data[thread_id].vehicles_processed) {
             // Tentamos obter as informações do veículo pelo serviço externo lento e atualizamos
             // tanto no dashboard quanto no registro geral de veículos
-            if (service.query_vehicle(plate)) {
+            if (vehicle.year < 0 && service.query_vehicle(plate)) {
                 // Atualiza no dashboard
                 vehicle.name = service.get_name();
                 vehicle.model = service.get_model();
                 vehicle.year = service.get_year();
-                
+
                 // Atualiza no registro geral
                 Vehicle* car = &vehicles[plate].vehicle;
                 car->name = vehicle.name;
@@ -444,7 +493,7 @@ class ETL {
         }
         while (true) {
             std::unique_lock<std::mutex> load_lock(load_mutex);
-            // Se não tem uma "ordem de desenho", espera até que ela chegue
+            // Se não tem um "pedido de desenho", espera até que ele chegue
             if (!should_draw)
                 load_cv.wait(load_lock, [this] { return should_draw; });
             if (should_exit)
@@ -453,13 +502,25 @@ class ETL {
             draw();
         }
         endwin();
-        std::cout << "Encerrando todas as threads..." << std::endl;
+    }
+
+    void quit() {
+        load_mutex.lock();
+        if (is_server_running) {
+            is_server_running = false;
+            server->Shutdown();
+        }
+        // Necessário para que a thread de desenho pare de esperar
+        should_draw = true;
+        should_exit = true;
+        load_mutex.unlock();
+        load_cv.notify_one();
     }
 
     /*
      *
      *  Aqui começam as variáveis, funções e estruturas relacionadas à parte gráfica do programa.
-     * 
+     *
     */
 
     enum VehicleFilter : int {
@@ -469,23 +530,25 @@ class ETL {
     };
 
     struct DashboardInfo {
-        // Armazena o tempo decorrido desde o início da simulação até a chegada no dashboard
-        double time_elapsed;
+        double total_time;
+        int num_runs;
+        // Índices de acesso dos veículo atual nos vetores analisados
+        int vehicle_i;
+        int vehicle_j;
+        int absolute_value;
+        int vehicle_filter;
+        int highway_filter;
         // Armazena o número de veículos para cada categoria de filtro
         int num_vehicles[3];
-        int num_lanes;
     };
 
     std::condition_variable load_cv;
     std::mutex load_mutex;
-    DashboardInfo info;
-    std::pair<int, int> current_vehicle;
-    int current_absolute_value;
-    int current_filter;
+    DashboardInfo info{};
     int vehicle_counts[3];
     // Indica se o programa deve ser encerrado (ao receber 'q' como input)
-    bool should_exit;
-    bool should_draw;
+    bool should_exit = false;
+    bool should_draw = false;
 
     /// Usado para computar a diferença de tempo entre a simulação e a chegada no dashboard.
     double now() {
@@ -493,15 +556,16 @@ class ETL {
         // Converte para segundos
         return static_cast<double>(nanoseconds) / 1e9;
     }
-    
+
     /// Retorna true se houve mudança no valor do veículo atual.
     bool find_previous() {
-        for (int i = current_vehicle.first; i >= 0; i--) {
-            int j = i == current_vehicle.first ? current_vehicle.second - 1 : processed[i].size() - 1;
-            for (; j >= 0; j--) {
-                if (processed[i][j].second.flags[current_filter]) {
-                    current_vehicle = std::make_pair(i, j);
-                    current_absolute_value--;
+        for (int i = info.vehicle_i; i >= 0; i--) {
+            int j = i == info.vehicle_i ? info.vehicle_j - 1 : get_processed(i).size() - 1;
+            for (j; j >= 0; j--) {
+                if (get_processed(i)[j].second.flags[info.vehicle_filter]) {
+                    info.vehicle_i = i;
+                    info.vehicle_j = j;
+                    info.absolute_value--;
                     return true;
                 }
             }
@@ -509,14 +573,19 @@ class ETL {
         return false;
     }
 
+    const std::vector<std::pair<std::string, Vehicle>>& get_processed(int i) {
+        return thread_data[i].vehicles_processed;
+    }
+
     /// Retorna true se houve mudança no valor do veículo atual.
     bool find_next() {
-        for (int i = current_vehicle.first; i < processed.size(); i++) {
-            int j = i == current_vehicle.first ? current_vehicle.second + 1 : 0;
-            for (; j < processed[i].size(); j++) {
-                if (processed[i][j].second.flags[current_filter]) {
-                    current_vehicle = std::make_pair(i, j);
-                    current_absolute_value++;
+        for (int i = info.vehicle_i; i < get_processed(i).size(); i++) {
+            int j = i == info.vehicle_i ? info.vehicle_j + 1 : 0;
+            for (j; j < get_processed(i).size(); j++) {
+                if (get_processed(i)[j].second.flags[info.vehicle_filter]) {
+                    info.vehicle_i = i;
+                    info.vehicle_j = j;
+                    info.absolute_value++;
                     return true;
                 }
             }
@@ -526,16 +595,18 @@ class ETL {
 
     /// Retorna true se o filtro foi atualizado. Define o veículo selecionado como
     /// o primeiro que se adequa ao filtro especificado.
-    bool update_filter(int new_value, bool force = false) {
+    bool update_filter(int new_value, bool highway = false, bool force = false) {
+        int& current_filter = highway ? info.highway_filter : info.vehicle_filter;
         if (new_value != current_filter || force) {
             current_filter = new_value;
-            current_vehicle = std::make_pair(0, 0);
-            if (info.num_vehicles[current_filter] > 1) {
-                if (!processed[0][0].second.flags[current_filter])
+            info.vehicle_i = 0;
+            info.vehicle_j = 0;
+            if (info.num_vehicles[info.vehicle_filter] > 0) {
+                if (get_processed(0).size() == 0 || !get_processed(0)[0].second.flags[info.vehicle_filter])
                     find_next();
-                current_absolute_value = 1;
+                info.absolute_value = 1;
             } else {
-                current_absolute_value = 0;
+                info.absolute_value = 0;
             }
             return true;
         }
@@ -553,12 +624,7 @@ class ETL {
                     changed = find_next();
                     break;
                 case 'q':
-                    load_mutex.lock();
-                    // Necessário para que a thread de desenho pare de esperar
-                    should_draw = true;
-                    should_exit = true;
-                    load_mutex.unlock();
-                    load_cv.notify_one();
+                    quit();
                     return;
                 case 't':
                     changed = update_filter(VehicleFilter::ALL);
@@ -569,6 +635,12 @@ class ETL {
                 case 'v':
                     changed = update_filter(VehicleFilter::ABOVE_SPEED_LIMIT);
                     break;
+                // case 'h':
+                //     load_mutex.lock();
+                //     int new_value = choose_highway();
+                //     changed = update_filter(new_value, true);
+                //     load_mutex.unlock();
+                //     break;
                 default:
                     break;
             }
@@ -582,52 +654,64 @@ class ETL {
     }
 
     void draw() {
-        static const std::pair<Plate, Vehicle> default_car = std::make_pair(
-            Plate{"-------"}, Vehicle{"", "", -1, {0, 0}, -1, 0, -1});
+        static const std::pair<std::string, Vehicle> default_car = std::make_pair(
+            std::string("-------"), Vehicle{"", "", -1, -1, {0, 0}, -1, 0, -1});
         clear();
         printw("Dashboard\n\n");
 
-        printw("Número de rodovias: %d\n", static_cast<int>(cycle_times.size()));
+        printw("Número de rodovias: %d\n", static_cast<int>(highways.size()));
         printw("Número de veículos: %d\n", info.num_vehicles[ALL]);
-        printw("Número de veículos acima do limite de velocidade: %d\n",
+        printw("Número de veículos acima do limite de velocidade: %d\n\n",
             info.num_vehicles[ABOVE_SPEED_LIMIT]);
-        printw("Tempo entre simulação e análise: %.6f segundos;\n\n", info.time_elapsed);
 
-        std::string filter_name;
-
-        switch (current_filter) {
+        const char* vehicle_filter_name;
+        switch (info.vehicle_filter) {
             case VehicleFilter::ALL:
-                filter_name = "Todos os veículos";
+                vehicle_filter_name = "Todos os veículos";
                 break;
             case VehicleFilter::COLLISION_RISK:
-                filter_name = "Veículos com risco de colisão";
+                vehicle_filter_name = "Veículos com risco de colisão";
                 break;
             case VehicleFilter::ABOVE_SPEED_LIMIT:
-                filter_name = "Veículos acima do limite de velocidade";
+                vehicle_filter_name = "Veículos acima do limite de velocidade";
                 break;
         }
 
-        const std::pair<Plate, Vehicle>* data;
-        if (info.num_vehicles[current_filter] == 0)
+        const std::pair<std::string, Vehicle>* data;
+        if (info.num_vehicles[info.vehicle_filter] == 0)
             data = &default_car;
         else
-            data = &processed[current_vehicle.first][current_vehicle.second];
+            data = &thread_data[info.vehicle_i].vehicles_processed[info.vehicle_j];
         const Vehicle& v = data->second;
 
-        printw("< %s (%d/%d) >\n\n", filter_name.c_str(), current_absolute_value,
-            info.num_vehicles[current_filter]);
+        printw("< %s (%d/%d) >\n\n", vehicle_filter_name, info.absolute_value,
+            info.num_vehicles[info.vehicle_filter]);
 
-        printw("Placa: %s\n", data->first.plate);
+        printw("Placa: %s\n", data->first.c_str());
+
+        if (v.highway_index >= 0) {
+            printw("Rodovia: %s\n", highways[v.highway_index].highway.name().c_str());
+            printw("\tTempo entre simulação e análise: %.6f segundos;\n",
+                highways[v.highway_index].time_elapsed);
+        } else {
+            printw("Rodovia: -\n");
+            printw("\tTempo entre simulação e análise: -\n");
+        }
+
         printw("\tPosição: (%d, %d)\n", data->second.last_pos.lane, data->second.last_pos.distance);
+
         if (v.speed >= 0)
             printw("\tVelocidade: %.2f\n", v.speed);
         else
             printw("\tVelocidade: -\n");
+
         printw("\tAceleração: %.2f\n", v.acceleration);
+
         if (v.risk >= 0)
             printw("\tRisco de colisão: %.2f\n", v.risk);
         else
             printw("\tRisco de colisão: -\n");
+
         if (v.year >= 0) {
             printw("\tProprietário: %s\n", v.name.c_str());
             printw("\tModelo: %s\n", v.model.c_str());

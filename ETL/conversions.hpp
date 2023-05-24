@@ -8,7 +8,7 @@
 
 /**
  *  @brief Retorna a representação em inteiro de uma string.
- *  
+ *
  *  @param str O array de caracteres a ser convertido.
  *  @param index O índice do primeiro caractere.
  *  @param end O caractere que termina a parte convertida da string.
@@ -31,7 +31,7 @@ inline int str_to_int(const char* str, int& index, char end) {
 
 /**
  *  @brief Retorna a representação em float de uma string.
- *  
+ *
  *  @param str O array de caracteres a ser convertido.
  *  @param index O índice do primeiro caractere.
  *  @param end O caractere que termina a parte convertida da string.
@@ -102,10 +102,10 @@ struct Plate {
     }
 };
 
-// Cria um hash para a estrutura Plate reinterpretando o array de char como um inteiro
-template<typename T>
-struct Hash {
-    std::size_t operator()(const T& plate) const noexcept {
+// Especialização da função de hash para as placas de veículos
+template<>
+struct std::hash<Plate> {
+    size_t operator()(const Plate& plate) const noexcept {
         return *reinterpret_cast<const size_t*>(plate.plate);
     }
 };

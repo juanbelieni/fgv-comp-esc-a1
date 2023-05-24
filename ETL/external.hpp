@@ -10,11 +10,9 @@
 #include <thread>
 #include <queue>
 
-#include "./conversions.hpp"
-
 
 class SlowService {
-    std::queue<Plate> queue;
+    std::queue<std::string> queue;
     std::condition_variable cv;
     std::mutex processing_mutex;
     std::mutex queue_mutex;
@@ -45,12 +43,12 @@ class SlowService {
         while (file.getline(line, 64))
             first_names.push_back(line);
         file.close();
-        
+
         file.open("ETL/random/last_names.txt");
         while (file.getline(line, 64))
             last_names.push_back(line);
         file.close();
-        
+
         file.open("ETL/random/models.txt");
         while (file.getline(line, 64))
             models.push_back(line);
@@ -59,7 +57,7 @@ class SlowService {
     /// @brief Adiciona uma placa à fila de espera e descarta a requisição se a fila estiver cheia.
     /// @param plate A placa a ser adicionada à fila.
     /// @return Um booleano indicando se a placa foi adicionada à fila.
-    bool query_vehicle(const Plate& plate) {
+    bool query_vehicle(const std::string& plate) {
         std::unique_lock<std::mutex> queue_lock(queue_mutex);
         if (queue.size() == max_queue_size)
             return false;
@@ -75,14 +73,7 @@ class SlowService {
         // Dorme para ser intencionalmente lento
         std::this_thread::sleep_for(std::chrono::nanoseconds(nap_time));
 
-        /*
-        Para que a função seja intencionalmente lenta, uma opção é ler o arquivo com os
-        dados todas as vezes, para citar a especificação original:
-        "carrega todas as informações de um arquivo e faz a pesquisa pelos dados associados à placa."
-
-        Porém, segundo o professor, "não existe arquivo no contexto desse serviço externo".
-        Sendo assim, fui pela abordagem mais simples, que é fazer aleatoriamente.
-        */
+        // Concatena strings toda vez ao invés de preprocessar
         name = (first_names[random_number(first_names.size())] + " " +
                 last_names[random_number(last_names.size())]);
         model = models[random_number(models.size())];
