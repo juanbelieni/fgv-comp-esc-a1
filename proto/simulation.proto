@@ -4,7 +4,7 @@ package simulation;
 
 message Empty {}
 
-message Vehicle {
+message RawVehicle {
   string plate = 1;
   bool direction = 2;
   uint32 lane = 3;
@@ -20,9 +20,9 @@ message Highway {
 
 message SimulationCycle {
   uint32 cycle = 1;
-  uint32 timestamp = 2;
+  double timestamp = 2;
   Highway highway = 3;
-  repeated Vehicle vehicles = 4;
+  repeated RawVehicle vehicles = 4;
 }
 
 service SimulationService {
