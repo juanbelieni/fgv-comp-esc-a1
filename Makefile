@@ -18,7 +18,6 @@ configure-grpc-cpp:
 	git clone -b v$(VERSION) --depth 1 https://github.com/grpc/grpc && \
 	cd grpc && \
 	git submodule update --init && \
-
 	mkdir -p cmake/build
 
 # Demora uma eternidade
@@ -26,16 +25,15 @@ install-grpc-cpp:
 	cd cmake/build && \
 	cmake ../.. && \
 	make -j $(NUM_JOBS) && \
-
-	cmake ../.. -DgRPC_INSTALL=ON               \
-				-DCMAKE_BUILD_TYPE=Release      \
-				-DgRPC_ABSL_PROVIDER=module     \
-				-DgRPC_CARES_PROVIDER=module    \
-				-DgRPC_PROTOBUF_PROVIDER=module \
-				-DgRPC_RE2_PROVIDER=module      \
-				-DgRPC_SSL_PROVIDER=module      \
-				-DgRPC_ZLIB_PROVIDER=package && \
-
+	cmake ../.. -DgRPC_INSTALL=ON						\
+				-DCMAKE_BUILD_TYPE=Release      	 	\
+				-DCMAKE_INSTALL_PREFIX=$(INSTALL_DIR) 	\
+				-DgRPC_ABSL_PROVIDER=module     		\
+				-DgRPC_CARES_PROVIDER=module    		\
+				-DgRPC_PROTOBUF_PROVIDER=module 	 	\
+				-DgRPC_RE2_PROVIDER=module     			\
+				-DgRPC_SSL_PROVIDER=module     			\
+				-DgRPC_ZLIB_PROVIDER=package && 		\
 	make -j $(NUM_JOBS) && \
 	make -j $(NUM_JOBS) install
 
@@ -47,15 +45,22 @@ generate-simulator:
 		--grpc_python_out=./highway-simulator \
 		proto/simulation.proto
 
-build-server:
+build-server-debug:
 	mkdir -p ETL/proto && \
 	mkdir -p build && \
 	cd build && \
-	cmake .. -Wno-dev && \
+	cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-g" -Wno-dev && \
+	make -j $(NUM_JOBS)
+
+build-server-release:
+	mkdir -p ETL/proto && \
+	mkdir -p build && \
+	cd build && \
+	cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-O3" -Wno-dev && \
 	make -j $(NUM_JOBS)
 
 start-simulator:
-	python3 main.py
+	python3 highway-simulator/main.py
 
 start-server:
 	./server

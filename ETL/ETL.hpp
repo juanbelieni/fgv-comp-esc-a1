@@ -138,18 +138,17 @@ class ETL {
     /// valor maior (em segundos), o servidor interrompe a execução após o tempo especificado.
     void run(double timeout = 0.0) {
         /*
-         *  Mínimo de 5 threads além daquela que recebeu a chamada de `run`:
+         *  Mínimo de 4 threads além daquela que recebeu a chamada de `run`:
          *  1 thread para a verificação de mensagens dos clientes.
-         *  Pelo menos 1 thread para executar Extract: a atual gerencia a chegada de novos
-         *  dados por RPC e a(s) outra(s) processa(m) os dados recebidos.
-         *  Pelo menos 1 thread para executar Transform.
+         *  Pelo menos 1 thread para executar Extract e Transform: a atual gerencia a
+         *  chegada de novos dados por RPC e a(s) outra(s) processa(m) os dados recebidos.
          *  2 threads para executar Load: uma para receber requisições de atualização
          *  do dashboard e uma para verificação de input do usuário.
          *  Esse número não leva em consideração threads que ficarão em espera na maioria
          *  do tempo, como a thread de timeout, que apenas acorda para encerrar o programa.
         */
-        if (num_threads < 5)
-            throw std::runtime_error("Número de threads deve ser maior que ou igual a 5.");
+        if (num_threads < 4)
+            throw std::runtime_error("Número de threads deve ser maior que ou igual a 4.");
 
         // Subtrai do número de threads para manter apenas a quantidade que é flexível
         num_threads -= 3;
@@ -227,17 +226,19 @@ class ETL {
 
     void force_redraw(bool reset = false) {
         std::lock_guard<std::mutex> lock(load_mutex);
-        should_draw = true;
+        // Se força um reset, atualiza as informações gerais do dashboard além
+        // das informações individuais dos carros
         if (reset) {
-            update_filter(info.vehicle_filter, false, true);
             for (int i = 0; i < 3; i++)
                 info.num_vehicles[i] = vehicle_counts[i];
+            update_filter(info.vehicle_filter, true);
         }
+        should_draw = true;
         load_cv.notify_one();
     }
 
     void join_all_threads() {
-        for (int i = 0; i < num_threads; i++)
+        for (int i = 0; i < thread_data.size(); i++)
             thread_data[i].thread.join();
     }
 
@@ -254,8 +255,9 @@ class ETL {
 
         int chunk_size = last_index / num_threads;
         for (int i = 0; i < num_threads; i++) {
-            thread_data[i].thread = std::thread(&ETL::extract, this, i,
-                i * chunk_size, (i + 1) * chunk_size, indices);
+            thread_data[i].modified.resize(0);
+            thread_data[i].thread = std::thread(&ETL::extract,
+                this, i, i * chunk_size, (i + 1) * chunk_size, indices);
         }
         join_all_threads();
 
@@ -341,11 +343,11 @@ class ETL {
 
     void extract(int thread_id, int start, int end, const std::vector<int>& indices) {
         ThreadData& data = thread_data[thread_id];
+        // Obtém o índice do ciclo que contém o primeiro veículo a ser processado
         // Corrige a divisão imprecisa e garante que todos os veículos serão processados
         if (thread_id == num_threads - 1)
             end = indices.back();
-        // Obtém o índice do ciclo que contém o primeiro veículo a ser processado
-        int cycle_index;
+        int cycle_index = 0;
         for (int i = 0; i < indices.size(); i++) {
             if (indices[i] > start) {
                 cycle_index = i;
@@ -353,18 +355,18 @@ class ETL {
             }
         }
 
-        // Variável que armazena o índice do último veículo no vetor local do ciclo,
-        // inicializada com o índice do ciclo anterior
-        int local_end = indices[std::max(0, cycle_index - 1)];
-        while (cycle_index < indices.size()) {
+        auto none = vehicles.end();
+        int offset = cycle_index == 0 ? 0 : indices[cycle_index - 1];
+        // i é o índice usado para acessar o vetor de dados do ciclo, então é um
+        // índice local, diferente dos índices usados para dividir a carga do ETL
+        int i = start - offset;
+        do {
             sim::SimulationCycle& cycle = cycles_processing[cycle_index].first;
             int highway_index = cycles_processing[cycle_index].second;
             int factor = highways[highway_index].highway.lanes() / 2;
 
-            auto none = vehicles.end();
-            // Começa pelo último do ciclo anterior e vai até o último veículo do ciclo atual
-            int i = local_end;
-            local_end = std::min(end, indices[cycle_index]);
+            // Variável que armazena o índice do último veículo no vetor local do ciclo
+            int local_end = std::min(end, indices[cycle_index]) - offset;
             while (i < local_end) {
                 const sim::RawVehicle& vehicle = cycle.vehicles(i++);
                 // No código abaixo, como não podemos ter mais de uma thread tentando acessar a
@@ -388,8 +390,10 @@ class ETL {
                 current->positions.push_back(current->vehicle.last_pos);
                 data.modified.push_back(vehicle.plate());
             }
-            cycle_index++;
-        }
+            i = 0;
+            offset = indices[cycle_index];
+        } while (++cycle_index < indices.size());
+
         // Garante que o vetor que recebe os dados do transform está preparado
         data.vehicles_processing.resize(0);
         data.vehicles_processing.reserve(data.modified.size());
@@ -575,7 +579,7 @@ class ETL {
 
     /// Retorna true se houve mudança no valor do veículo atual.
     bool find_next() {
-        for (int i = info.vehicle_i; i < get_processed(i).size(); i++) {
+        for (int i = info.vehicle_i; i < thread_data.size(); i++) {
             int j = i == info.vehicle_i ? info.vehicle_j + 1 : 0;
             for (j; j < get_processed(i).size(); j++) {
                 if (get_processed(i)[j].second.flags[info.vehicle_filter]) {
@@ -591,10 +595,9 @@ class ETL {
 
     /// Retorna true se o filtro foi atualizado. Define o veículo selecionado como
     /// o primeiro que se adequa ao filtro especificado.
-    bool update_filter(int new_value, bool highway = false, bool force = false) {
-        int& current_filter = highway ? info.highway_filter : info.vehicle_filter;
-        if (new_value != current_filter || force) {
-            current_filter = new_value;
+    bool update_filter(int new_value, bool force = false) {
+        if (new_value != info.vehicle_filter || force) {
+            info.vehicle_filter = new_value;
             info.vehicle_i = 0;
             info.vehicle_j = 0;
             if (info.num_vehicles[info.vehicle_filter] > 0) {
@@ -631,12 +634,6 @@ class ETL {
                 case 'v':
                     changed = update_filter(VehicleFilter::ABOVE_SPEED_LIMIT);
                     break;
-                // case 'h':
-                //     load_mutex.lock();
-                //     int new_value = choose_highway();
-                //     changed = update_filter(new_value, true);
-                //     load_mutex.unlock();
-                //     break;
                 default:
                     break;
             }
@@ -687,7 +684,7 @@ class ETL {
 
         if (v.highway_index >= 0) {
             printw("Rodovia: %s\n", highways[v.highway_index].highway.name().c_str());
-            printw("\tTempo entre simulação e análise: %.6f segundos;\n",
+            printw("\tTempo entre simulação e análise: %.6f segundos\n",
                 highways[v.highway_index].time_elapsed);
         } else {
             printw("Rodovia: -\n");
