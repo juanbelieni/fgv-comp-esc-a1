@@ -124,6 +124,7 @@ class Simulation:
                     self.params.max_speed,
                 )
 
+                old_pos = VehiclePosition(lane=vehicle.pos.lane, dist=vehicle.pos.dist)
                 vehicle.pos.dist = vehicle.pos.dist + vehicle.speed
                 desired_lane = vehicle.pos.lane
 
@@ -160,6 +161,9 @@ class Simulation:
 
                         if possible_lanes:
                             desired_lane = choice(possible_lanes)
+                        elif collision.pos.dist < old_pos.dist:
+                            vehicle.pos = old_pos
+                            desired_lane = old_pos.lane
                         else:
                             vehicle.pos.dist = collision.pos.dist - 1
                             vehicle.speed = collision.speed
