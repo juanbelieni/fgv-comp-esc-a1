@@ -129,8 +129,13 @@ class ETL {
         this->num_threads = num_threads;
     }
 
-    double summary() const {
-        return info.num_runs ? (info.total_time / info.num_runs) : std::numeric_limits<double>::infinity();
+    double summary(bool reset_counter = true) {
+        double result = info.num_runs ? (info.total_time / info.num_runs) : 0.0;
+        if (reset_counter) {
+            info.num_runs = 0;
+            info.total_time = 0.0;
+        }
+        return result;
     }
 
     /// Inicia a execução do ETL. O comportamento padrão com `timeout` igual a 0 é de
@@ -273,6 +278,15 @@ class ETL {
 
         for (int i = 0; i < num_threads; i++)
             thread_data[i].vehicles_processed = std::move(thread_data[i].vehicles_processing);
+
+        double now_ = now();
+        for (int i = 0; i < cycles_processing.size(); i++) {
+            int highway_index = cycles_processing[i].second;
+            highways[highway_index].time_elapsed = now_ - highways[highway_index].times.back();
+            info.total_time += highways[highway_index].time_elapsed;
+            info.num_runs++;
+        }
+
         // Força a atualização do dashboard
         force_redraw(true);
 
@@ -286,7 +300,7 @@ class ETL {
     }
 
     void listen(double timeout = 0.0) {
-        std::string server_address("localhost:50051");
+        const std::string server_address("localhost:50051");
 
         grpc::ServerBuilder builder;
         builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -426,7 +440,7 @@ class ETL {
 
                 if (positions.size() > 2) {
                     // Calcula aceleração como variação de velocidade dividida por tempo decorrido
-                    car->acceleration = (car->speed - prev_speed) 
+                    car->acceleration = (car->speed - prev_speed)
                         / (cycles[last_cycle] - cycles[last_cycle - 1]);
                     if (car->acceleration == -0.0f)
                         car->acceleration = 0.0f;

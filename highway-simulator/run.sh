@@ -1,9 +1,9 @@
 #!/bin/bash
 
-n=$1
+n=10
 
 run_python_script() {
-  python main.py -l 6 -pl 0.1 -pv 0.1 -pc 0.05 -vmin 1 -d 0.1
+  python highway-simulator/main.py -l 6 -pl 0.1 -pv 0.1 -pc 0.05 -vmin 1 -d 0.1
 }
 
 for ((i=1; i<=n; i++))
